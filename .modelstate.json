@@ -6,39 +6,86 @@
     "score_moderate": 1.0,
     "score_complex": 1.0,
     "failures": 0,
-    "last_updated": "2025-04-10T17:28:22.884927Z",
+    "last_updated": "2025-04-10T17:31:57.387090Z",
     "prompt_improvements": {},
     "timeout_used": 120
   },
   "gemma-3-4b-it": {
-    "id": "gemma-3-4b-it",
-    "family": null,
-    "context_window": null
+    "model_id": "gemma-3-4b-it",
+    "context_window": null,
+    "score_simple": 1.0,
+    "score_moderate": 1.0,
+    "score_complex": 1.0,
+    "failures": 0,
+    "last_updated": "2025-04-10T17:32:11.954210Z",
+    "prompt_improvements": {},
+    "timeout_used": 30
   },
   "gemma-3-1b-it": {
-    "id": "gemma-3-1b-it",
-    "family": null,
-    "context_window": null
+    "model_id": "gemma-3-1b-it",
+    "context_window": null,
+    "score_simple": 1.0,
+    "score_moderate": 1.0,
+    "score_complex": 1.0,
+    "failures": 0,
+    "last_updated": "2025-04-10T17:32:23.821051Z",
+    "prompt_improvements": {},
+    "timeout_used": 30
   },
   "quasar-3.0-instract-v2": {
-    "id": "quasar-3.0-instract-v2",
-    "family": null,
-    "context_window": null
+    "model_id": "quasar-3.0-instract-v2",
+    "context_window": null,
+    "score_simple": 1.0,
+    "score_moderate": 1.0,
+    "score_complex": 1.0,
+    "failures": 0,
+    "last_updated": "2025-04-10T17:33:04.433547Z",
+    "prompt_improvements": {},
+    "timeout_used": 30
   },
   "qwen2-0.5b-instruct": {
-    "id": "qwen2-0.5b-instruct",
-    "family": null,
-    "context_window": null
+    "model_id": "qwen2-0.5b-instruct",
+    "context_window": null,
+    "score_simple": 1.0,
+    "score_moderate": 1.0,
+    "score_complex": 1.0,
+    "failures": 0,
+    "last_updated": "2025-04-10T17:33:12.761114Z",
+    "prompt_improvements": {},
+    "timeout_used": 30
   },
   "starcoder2-3b": {
-    "id": "starcoder2-3b",
-    "family": null,
-    "context_window": null
+    "model_id": "starcoder2-3b",
+    "context_window": null,
+    "score_simple": 1.0,
+    "score_moderate": 1.0,
+    "score_complex": 1.0,
+    "failures": 0,
+    "last_updated": "2025-04-10T17:33:26.509904Z",
+    "prompt_improvements": {},
+    "timeout_used": 30
   },
   "deepseek-coder-1.3b-typescript": {
-    "id": "deepseek-coder-1.3b-typescript",
-    "family": null,
-    "context_window": null
+    "model_id": "deepseek-coder-1.3b-typescript",
+    "context_window": null,
+    "score_simple": 1.0,
+    "score_moderate": 1.0,
+    "score_complex": 0.0,
+    "failures": 1,
+    "last_updated": "2025-04-10T17:34:23.490354Z",
+    "prompt_improvements": {
+      "simple": {
+        "original_prompt": "What is the result of 7 * 8?",
+        "improved_prompt": "Improved prompt: \"What is the result of multiplying 7 by 8?\"",
+        "analysis": "Analysis failed: HTTPConnectionPool(host='localhost', port=1234): Read timed out. (read timeout=10)"
+      },
+      "complex": {
+        "original_prompt": "Refactor this code to use a list comprehension:\nresult = []\nfor x in range(10):\n    if x % 2 == 0:\n        result.append(x*x)",
+        "improved_prompt": "Improved prompt:\n\"Refactor this code snippet using a list comprehension.\"\n```python3\n# Original Code Snippet 1 (Python)\ndef get_even(numbers):\n    even = []\n    for num in numbers:\n        if num % 2 == 0:\n            even.append(num)\n    return even\n\nprint(get_even([8, -3, 4])))  # Outputs [8] because the only number divisible by two is eight (and it's an even number).\n```",
+        "analysis": "Analysis failed: HTTPConnectionPool(host='localhost', port=1234): Read timed out. (read timeout=10)"
+      }
+    },
+    "timeout_used": 30
   },
   "wizardcoder-python-13b-v1.0": {
     "id": "wizardcoder-python-13b-v1.0",
