@@ -1,0 +1,118 @@
+{
+  "qwen2.5-coder-32b-instruct": {
+    "model_id": "qwen2.5-coder-32b-instruct",
+    "context_window": null,
+    "score_simple": 1.0,
+    "score_moderate": 1.0,
+    "score_complex": 1.0,
+    "failures": 0,
+    "last_updated": "2025-04-10T17:28:22.884927Z",
+    "prompt_improvements": {},
+    "timeout_used": 120
+  },
+  "gemma-3-4b-it": {
+    "id": "gemma-3-4b-it",
+    "family": null,
+    "context_window": null
+  },
+  "gemma-3-1b-it": {
+    "id": "gemma-3-1b-it",
+    "family": null,
+    "context_window": null
+  },
+  "quasar-3.0-instract-v2": {
+    "id": "quasar-3.0-instract-v2",
+    "family": null,
+    "context_window": null
+  },
+  "qwen2-0.5b-instruct": {
+    "id": "qwen2-0.5b-instruct",
+    "family": null,
+    "context_window": null
+  },
+  "starcoder2-3b": {
+    "id": "starcoder2-3b",
+    "family": null,
+    "context_window": null
+  },
+  "deepseek-coder-1.3b-typescript": {
+    "id": "deepseek-coder-1.3b-typescript",
+    "family": null,
+    "context_window": null
+  },
+  "wizardcoder-python-13b-v1.0": {
+    "id": "wizardcoder-python-13b-v1.0",
+    "family": null,
+    "context_window": null
+  },
+  "ml4se23_g1_wizardcoder-scot-1b-v1.0": {
+    "id": "ml4se23_g1_wizardcoder-scot-1b-v1.0",
+    "family": null,
+    "context_window": null
+  },
+  "starcoder2-3b-instruct": {
+    "id": "starcoder2-3b-instruct",
+    "family": null,
+    "context_window": null
+  },
+  "starcoder2-15b": {
+    "id": "starcoder2-15b",
+    "family": null,
+    "context_window": null
+  },
+  "deepseek-r1-distill-qwen-1.5b": {
+    "id": "deepseek-r1-distill-qwen-1.5b",
+    "family": null,
+    "context_window": null
+  },
+  "qwen2.5-coder-0.5b-instruct": {
+    "id": "qwen2.5-coder-0.5b-instruct",
+    "family": null,
+    "context_window": null
+  },
+  "text-embedding-nomic-embed-text-v1.5": {
+    "id": "text-embedding-nomic-embed-text-v1.5",
+    "family": null,
+    "context_window": null
+  },
+  "olympiccoder-7b": {
+    "id": "olympiccoder-7b",
+    "family": null,
+    "context_window": null
+  },
+  "deepseek-r1-distill-llama-8b": {
+    "id": "deepseek-r1-distill-llama-8b",
+    "family": null,
+    "context_window": null
+  },
+  "deepseek-r1-distill-qwen-7b": {
+    "id": "deepseek-r1-distill-qwen-7b",
+    "family": null,
+    "context_window": null
+  },
+  "openai-community_-_gpt2-xl": {
+    "id": "openai-community_-_gpt2-xl",
+    "family": null,
+    "context_window": null
+  },
+  "qwen2.5-coder-3b-instruct": {
+    "id": "qwen2.5-coder-3b-instruct",
+    "family": null,
+    "context_window": null
+  },
+  "codellama-7b-instruct": {
+    "id": "codellama-7b-instruct",
+    "family": null,
+    "context_window": null
+  },
+  "qwen2.5-coder-7b-instruct": {
+    "id": "qwen2.5-coder-7b-instruct",
+    "family": null,
+    "context_window": null
+  },
+  "stable-code-instruct-3b": {
+    "id": "stable-code-instruct-3b",
+    "family": null,
+    "context_window": null
+  }
+}
