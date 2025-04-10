@@ -160,9 +160,10 @@ def get_model_timeout(model: Dict[str, Any]) -> int:
         return 120  # 2 minutes for large models
     
     # Or base timeout on context window size if available
-    if context_size > 8000:
+    # Ensure context_size is not None before comparison
+    if isinstance(context_size, (int, float)) and context_size > 8000:
         return 120  # 2 minutes for models with large context windows
-    elif context_size > 4000:
+    elif isinstance(context_size, (int, float)) and context_size > 4000:
         return 60   # 1 minute for medium context windows
     
     # Default timeout for smaller models
