@@ -183,7 +183,11 @@ def benchmark_lmstudio_models(
             "prompt": "What is the result of 7 * 8?",
             "system_prompt": "You are a precise calculator. Provide only the numeric result.",
             "expected": "56",
-            "score_fn": lambda resp: 1.0 if "56" in resp else 0.0,
+            "score_fn": lambda resp: 
+                1.0 if "56" in resp else 
+                0.5 if any(str(n) in resp for n in range(50, 60)) else  # Close but not right
+                0.2 if resp.strip().isdigit() else  # At least gave a number
+                0.0,  # Completely wrong
             "temperature": 0.1
         },
         {
@@ -192,7 +196,13 @@ def benchmark_lmstudio_models(
             "prompt": "Write a Python function that returns the square of a number.",
             "system_prompt": "You are a Python programmer. Write clean, efficient code.",
             "expected": "def square(n):\n    return n * n",
-            "score_fn": lambda resp: 1.0 if "def square" in resp and "return" in resp else 0.0,
+            "score_fn": lambda resp: 
+                1.0 if "def square" in resp and "return" in resp and ("n * n" in resp or "n**2" in resp or "pow(n, 2)" in resp) else
+                0.8 if "def square" in resp and "return" in resp else  # Has function definition but math may be off
+                0.6 if "def" in resp and "return" in resp and ("*" in resp or "**2" in resp) else  # Different function name
+                0.4 if "def" in resp and "return" in resp else  # Has function structure
+                0.2 if "square" in resp and "*" in resp else  # Has concepts but not proper function
+                0.0,  # Completely wrong
             "temperature": 0.2
         },
         {
@@ -201,16 +211,37 @@ def benchmark_lmstudio_models(
             "prompt": "Refactor this code to use a list comprehension:\nresult = []\nfor x in range(10):\n    if x % 2 == 0:\n        result.append(x*x)",
             "system_prompt": "You are a Python expert. Provide the most concise, readable solution.",
             "expected": "[x*x for x in range(10) if x % 2 == 0]",
-            "score_fn": lambda resp: 1.0 if any(
-                variant in resp.replace(" ", "").replace("\n", "")
-                for variant in [
-                    "[x*xforxinrange(10)ifx%2==0]",
-                    "[x**2forxinrange(10)ifx%2==0]",
-                    "result=[x*xforxinrange(10)ifx%2==0]",
-                    "result=[x**2forxinrange(10)ifx%2==0]"
-                ]
-            ) else 0.0,
+            "score_fn": lambda resp: 
+                1.0 if any(
+                    variant in resp.replace(" ", "").replace("\n", "")
+                    for variant in [
+                        "[x*xforxinrange(10)ifx%2==0]",
+                        "[x**2forxinrange(10)ifx%2==0]",
+                        "result=[x*xforxinrange(10)ifx%2==0]",
+                        "result=[x**2forxinrange(10)ifx%2==0]"
+                    ]
+                ) else
+                0.8 if "[" in resp and "for" in resp and "if" in resp and "range(10)" in resp and ("x*x" in resp or "x**2" in resp) else 
+                0.6 if "[" in resp and "for" in resp and "if" in resp and "range" in resp else
+                0.4 if "[" in resp and "for" in resp and ("x*x" in resp or "x**2" in resp) else 
+                0.2 if "[" in resp and "for" in resp else
+                0.0,  # Completely wrong
             "temperature": 0.2
+        },
+        {
+            "name": "context_window",
+            "display_name": "Context Window Test",
+            "prompt": "I'm going to give you a long text with a question at the end. Your task is to answer the question accurately.\n\n" + \
+                     "".join([f"This is paragraph {i}. It contains some text that you need to remember. The special number for this paragraph is {i*10+7}.\n\n" for i in range(1, 21)]) + \
+                     "Final question: What was the special number in paragraph 7?",
+            "system_prompt": "You are a helpful assistant with great memory. Read the entire text carefully before answering.",
+            "expected": "77",
+            "score_fn": lambda resp: 
+                1.0 if "77" in resp else
+                0.5 if any(f"{n}" in resp for n in range(75, 80)) else
+                0.2 if resp.strip().isdigit() else
+                0.0,  # Completely wrong
+            "temperature": 0.1
         }
     ]
 
@@ -309,6 +340,7 @@ def benchmark_lmstudio_models(
                 "score_simple": scores.get("simple", 0.0),
                 "score_moderate": scores.get("moderate", 0.0),
                 "score_complex": scores.get("complex", 0.0),
+                "score_context_window": scores.get("context_window", 0.0),
                 "failures": failures,
                 "last_updated": datetime.utcnow().isoformat() + "Z",
                 "prompt_improvements": prompt_improvements,
@@ -331,7 +363,8 @@ def benchmark_lmstudio_models(
             print(f"  Simple Arithmetic: {scores.get('simple', 0.0):.2f}")
             print(f"  Function Creation: {scores.get('moderate', 0.0):.2f}")
             print(f"  Code Refactoring: {scores.get('complex', 0.0):.2f}")
-            overall = (scores.get('simple', 0.0) + scores.get('moderate', 0.0) + scores.get('complex', 0.0))/3
+            print(f"  Context Window Test: {scores.get('context_window', 0.0):.2f}")
+            overall = (scores.get('simple', 0.0) + scores.get('moderate', 0.0) + scores.get('complex', 0.0) + scores.get('context_window', 0.0))/4
             print(f"  Overall: {overall:.2f}")
             
             # If this is not the last model, ask user if they want to continue
@@ -687,6 +720,7 @@ def benchmark_lmstudio_models(
                     "score_simple": scores.get("simple", 0.0),
                     "score_moderate": scores.get("moderate", 0.0),
                     "score_complex": scores.get("complex", 0.0),
+                    "score_context_window": scores.get("context_window", 0.0),
                     "failures": failures,
                     "last_updated": datetime.utcnow().isoformat() + "Z",
                     "prompt_improvements": prompt_improvements,
@@ -714,7 +748,8 @@ def benchmark_lmstudio_models(
                 summary_table.add_row("Simple Arithmetic", f"{scores.get('simple', 0.0):.2f}")
                 summary_table.add_row("Function Creation", f"{scores.get('moderate', 0.0):.2f}")
                 summary_table.add_row("Code Refactoring", f"{scores.get('complex', 0.0):.2f}")
-                summary_table.add_row("Overall", f"{(scores.get('simple', 0.0) + scores.get('moderate', 0.0) + scores.get('complex', 0.0))/3:.2f}")
+                summary_table.add_row("Context Window Test", f"{scores.get('context_window', 0.0):.2f}")
+                summary_table.add_row("Overall", f"{(scores.get('simple', 0.0) + scores.get('moderate', 0.0) + scores.get('complex', 0.0) + scores.get('context_window', 0.0))/4:.2f}")
                 
                 layout["content"].update(summary_table)
                 
