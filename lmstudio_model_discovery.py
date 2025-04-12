@@ -6,6 +6,7 @@ from datetime import datetime
 import threading
 import sys
 from lmstudio_modelstate import update_modelstate_json
+from lmstudio_deepeval import benchmark_with_bigbench
 
 # Enhanced rich imports for better console output
 try:
@@ -259,7 +260,8 @@ def benchmark_lmstudio_models(
     models: List[Dict[str, Any]],
     api_endpoint: str = CHAT_COMPLETIONS_ENDPOINT,
     default_timeout: int = 30,
-    max_retries: int = 2
+    max_retries: int = 2,
+    run_bigbench: bool = True
 ) -> List[Dict[str, Any]]:
     """Enhanced benchmarking with adaptive prompting, state management, detailed visual feedback and user continuation prompts."""
     benchmarks = [
@@ -419,6 +421,20 @@ def benchmark_lmstudio_models(
                 scores[bench["name"]] = best_score
                 print(f"    Final score: {best_score:.2f}")
             
+            # Run BIG-BENCH-HARD benchmarks if enabled
+            if run_bigbench:
+                try:
+                    print("\nRunning BIG-BENCH-HARD benchmarks...")
+                    bigbench_results = benchmark_with_bigbench(
+                        model,
+                        api_endpoint=api_endpoint,
+                        timeout=get_model_timeout(model)
+                    )
+                    print(f"  BIG-BENCH Overall Score: {bigbench_results['bigbench_scores']['overall']:.2f}")
+                except Exception as e:
+                    print(f"  Warning: BIG-BENCH benchmarks failed: {str(e)}")
+                    bigbench_results = None
+
             # Construct result for this model
             result = {
                 "model_id": model_id,
@@ -432,7 +448,12 @@ def benchmark_lmstudio_models(
                 "prompt_improvements": prompt_improvements,
                 "timeout_used": model_timeout  # Store the timeout used for future reference
             }
-            
+
+            # Add BIG-BENCH results if available
+            if bigbench_results:
+                result["bigbench_scores"] = bigbench_results["bigbench_scores"]
+                result["bigbench_predictions"] = bigbench_results["predictions"]
+
             # Add to results
             results.append(result)
             
@@ -450,7 +471,11 @@ def benchmark_lmstudio_models(
             print(f"  Function Creation: {scores.get('moderate', 0.0):.2f}")
             print(f"  Code Refactoring: {scores.get('complex', 0.0):.2f}")
             print(f"  Context Window Test: {scores.get('context_window', 0.0):.2f}")
+            if bigbench_results:
+                print(f"  BIG-BENCH Score: {bigbench_results['bigbench_scores']['overall']:.2f}")
             overall = (scores.get('simple', 0.0) + scores.get('moderate', 0.0) + scores.get('complex', 0.0) + scores.get('context_window', 0.0))/4
+            if bigbench_results:
+                overall = (overall + bigbench_results['bigbench_scores']['overall']) / 2
             print(f"  Overall: {overall:.2f}")
             
             # If this is not the last model, ask user if they want to continue
@@ -515,9 +540,12 @@ def benchmark_lmstudio_models(
                 layout["header"].update(f"[bold blue]Model {i+1}/{len(models)}: {model_id}[/bold blue]")
                 
                 # Create task for this specific model
+                num_tasks = len(benchmarks)
+                if run_bigbench:
+                    num_tasks += 1  # Add one for BIG-BENCH
                 model_task_id = model_progress.add_task(
-                    f"Current model progress", 
-                    total=len(benchmarks)
+                    f"Current model progress",
+                    total=num_tasks
                 )
                 
                 # Get appropriate timeout for this model
@@ -532,10 +560,18 @@ def benchmark_lmstudio_models(
                 bench_rows = []
                 for bench in benchmarks:
                     bench_rows.append([
-                        bench["display_name"], 
-                        "Pending", 
-                        "0.0", 
-                        "0", 
+                        bench["display_name"],
+                        "Pending",
+                        "0.0",
+                        "0",
+                        "Waiting to start..."
+                    ])
+                if run_bigbench:
+                    bench_rows.append([
+                        "BIG-BENCH-HARD",
+                        "Pending",
+                        "0.0",
+                        "-",
                         "Waiting to start..."
                     ])
                 
@@ -550,11 +586,9 @@ def benchmark_lmstudio_models(
                 # Add all rows to the table
                 for row in bench_rows:
                     bench_table.add_row(*row)
-                
-                # Update the display with our table
                 layout["content"].update(bench_table)
                 
-                # Run each benchmark for this model
+                # Run benchmarks
                 for bench_idx, bench in enumerate(benchmarks):
                     current_prompt = bench["prompt"]
                     best_score = 0.0
@@ -799,6 +833,57 @@ def benchmark_lmstudio_models(
                     # Update progress
                     model_progress.update(model_task_id, advance=1)
                 
+                # Run BIG-BENCH-HARD benchmarks if enabled
+                if run_bigbench:
+                    bigbench_idx = len(bench_rows) - 1
+                    bench_rows[bigbench_idx][1] = "Running"
+                    bench_rows[bigbench_idx][4] = "Running BIG-BENCH-HARD benchmarks..."
+                    
+                    # Create new table with updated data
+                    new_table = Table(title=f"Benchmarking {model_id}", box=box.ROUNDED)
+                    new_table.add_column("Task", style="cyan")
+                    new_table.add_column("Status", style="yellow")
+                    new_table.add_column("Score", style="green")
+                    new_table.add_column("Attempts", style="magenta")
+                    new_table.add_column("Details", style="blue")
+                    
+                    for row in bench_rows:
+                        new_table.add_row(*row)
+                    
+                    layout["content"].update(new_table)
+                    bench_table = new_table
+                    
+                    try:
+                        bigbench_results = benchmark_with_bigbench(
+                            model,
+                            api_endpoint=api_endpoint,
+                            timeout=model_timeout
+                        )
+                        bench_rows[bigbench_idx][1] = "✅ Success"
+                        bench_rows[bigbench_idx][2] = f"{bigbench_results['bigbench_scores']['overall']:.2f}"
+                        bench_rows[bigbench_idx][4] = f"Completed ({len(bigbench_results['predictions'])} tasks)"
+                    except Exception as e:
+                        bench_rows[bigbench_idx][1] = "❌ Failed"
+                        bench_rows[bigbench_idx][2] = "0.0"
+                        bench_rows[bigbench_idx][4] = f"Error: {str(e)[:50]}..."
+                        bigbench_results = None
+                    
+                    # Create new table with updated data
+                    new_table = Table(title=f"Benchmarking {model_id}", box=box.ROUNDED)
+                    new_table.add_column("Task", style="cyan")
+                    new_table.add_column("Status", style="yellow")
+                    new_table.add_column("Score", style="green")
+                    new_table.add_column("Attempts", style="magenta")
+                    new_table.add_column("Details", style="blue")
+                    
+                    for row in bench_rows:
+                        new_table.add_row(*row)
+                    
+                    layout["content"].update(new_table)
+                    bench_table = new_table
+                    
+                    model_progress.update(model_task_id, advance=1)
+                
                 # Construct result for this model
                 result = {
                     "model_id": model_id,
@@ -813,6 +898,11 @@ def benchmark_lmstudio_models(
                     "timeout_used": model_timeout  # Store the timeout used for future reference
                 }
                 
+                # Add BIG-BENCH results if available
+                if bigbench_results:
+                    result["bigbench_scores"] = bigbench_results["bigbench_scores"]
+                    result["bigbench_predictions"] = bigbench_results["predictions"]
+
                 # Add to results
                 results.append(result)
                 
@@ -835,14 +925,25 @@ def benchmark_lmstudio_models(
                 summary_table.add_row("Function Creation", f"{scores.get('moderate', 0.0):.2f}")
                 summary_table.add_row("Code Refactoring", f"{scores.get('complex', 0.0):.2f}")
                 summary_table.add_row("Context Window Test", f"{scores.get('context_window', 0.0):.2f}")
-                summary_table.add_row("Overall", f"{(scores.get('simple', 0.0) + scores.get('moderate', 0.0) + scores.get('complex', 0.0) + scores.get('context_window', 0.0))/4:.2f}")
+                if bigbench_results:
+                    summary_table.add_row("BIG-BENCH Score", f"{bigbench_results['bigbench_scores']['overall']:.2f}")
+                
+                # Calculate overall score
+                overall = (
+                    scores.get('simple', 0.0) + 
+                    scores.get('moderate', 0.0) + 
+                    scores.get('complex', 0.0) + 
+                    scores.get('context_window', 0.0)
+                ) / 4
+                if bigbench_results:
+                    overall = (overall + bigbench_results['bigbench_scores']['overall']) / 2
+                summary_table.add_row("Overall", f"{overall:.2f}")
                 
                 layout["content"].update(summary_table)
                 
                 # If this is not the last model, ask user if they want to continue
                 if i < len(models_to_process) - 1:
                     layout["footer"].update("[yellow]Waiting for user input...[/yellow]")
-                    # Need to temporarily exit Live context to get user input
                     live.stop()
                     continue_benchmarking = ask_continue_with_timeout(5)
                     live.start()
