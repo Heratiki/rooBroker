@@ -25,199 +25,205 @@ def generate_mode_entry(model):
     # Get BIG-BENCH scores if available
     bigbench_scores = model.get('bigbench_scores', {})
     bigbench_overall = bigbench_scores.get('overall', 0.0)
+    bigbench_raw = bigbench_scores.get('raw_overall', bigbench_overall)
     bigbench_tasks = bigbench_scores.get('tasks', [])
     
-    # Calculate overall score including BIG-BENCH if available
+    # Calculate overall score with heavy BIG-BENCH weighting (60% BIG-BENCH, 40% standard)
     base_score = (score_simple + score_moderate + score_complex + score_context_window) / 4
-    overall_score = (base_score + bigbench_overall) / 2 if bigbench_overall > 0 else base_score
+    overall_score = (base_score * 0.4 + bigbench_overall * 0.6) if bigbench_overall > 0 else base_score
     
-    # Round scores for cleaner display
-    score_simple = round(score_simple, 2)
-    score_moderate = round(score_moderate, 2)
-    score_complex = round(score_complex, 2)
-    score_context_window = round(score_context_window, 2)
-    bigbench_overall = round(bigbench_overall, 2) if bigbench_overall > 0 else 0.0
-    overall_score = round(overall_score, 2)
+    # Extract complexity-specific capabilities
+    complexity_scores = {
+        "logical_reasoning": [],
+        "algorithmic_thinking": [],
+        "abstract_reasoning": [],
+        "mathematics": [],
+        "code_generation": [],
+        "problem_solving": [],
+        "other": []
+    }
     
-    # Get prompt improvements if available
-    improvements = model.get('prompt_improvements', {})
-    improved_prompts = {}
-    coding_strategies = []
+    # Group task scores by complexity category
+    for task in bigbench_tasks:
+        category = task.get('complexity_category', 'other')
+        if category in complexity_scores:
+            complexity_scores[category].append({
+                'name': task.get('task', ''),
+                'score': task.get('weighted_score', task.get('raw_score', 0.0)),
+                'metrics': task.get('metrics', {})
+            })
     
-    # Extract useful strategies from improvements
-    for task_name, imp in improvements.items():
-        if imp.get('improved_prompt'):
-            # Skip HTTP errors
-            if 'HTTPConnectionPool' not in str(imp.get('analysis', '')):
-                improved_prompts[task_name] = {
-                    'original': imp.get('original_prompt', ''),
-                    'improved': imp.get('improved_prompt', ''),
-                    'analysis': imp.get('analysis', '')
-                }
-                
-                # Extract useful coding strategies from analysis using our specialized extractor
-                analysis = imp.get('analysis', '')
-                if analysis and len(analysis) > 10 and 'HTTPConnectionPool' not in analysis:
-                    # Get coding-specific insights based on task type
-                    insights = extract_coding_insights(analysis, task_name)
-                    if insights:
-                        coding_strategies.extend(insights)
-
+    # Calculate average scores per category
+    category_averages = {
+        cat: sum(t['score'] for t in tasks) / len(tasks) if tasks else 0.0
+        for cat, tasks in complexity_scores.items()
+    }
+    
     # Create a coding-focused role definition modeled after RooCode's default
     base_role = "You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices."
     
-    # Customize based on both model capabilities and BIG-BENCH scores
-    if overall_score > 0.8:
-        role_addition = "excel at complex coding tasks, refactoring, and implementing sophisticated solutions"
-        if bigbench_overall > 0.8:
-            role_addition += ", with exceptional performance on advanced reasoning and comprehension tasks"
-    elif overall_score > 0.5:
-        role_addition = "handle moderately complex programming tasks and provide solid implementation advice"
-        if bigbench_overall > 0.5:
-            role_addition += ", with good reasoning and task comprehension abilities"
+    # Customize based heavily on BIG-BENCH-HARD performance
+    if bigbench_overall > 0.8:
+        role_addition = "excel at complex reasoning tasks, particularly in"
+        top_categories = sorted(
+            [(cat, score) for cat, score in category_averages.items() if score > 0.7],
+            key=lambda x: x[1],
+            reverse=True
+        )[:3]
+        if top_categories:
+            role_addition += " " + ", ".join(cat.replace("_", " ") for cat, _ in top_categories)
+    elif bigbench_overall > 0.6:
+        role_addition = "handle moderately complex tasks with good performance in"
+        top_categories = sorted(
+            [(cat, score) for cat, score in category_averages.items() if score > 0.5],
+            key=lambda x: x[1],
+            reverse=True
+        )[:2]
+        if top_categories:
+            role_addition += " " + " and ".join(cat.replace("_", " ") for cat, _ in top_categories)
     else:
-        role_addition = "focus on providing simpler code snippets, explanations, and guidance on basic programming concepts"
-        if bigbench_overall > 0.0:
-            role_addition += ", with basic reasoning capabilities"
+        role_addition = "focus on well-defined tasks with clear requirements"
     
     role_definition = f"{base_role} Using the {model_name} language model with a {context_window}-token context window, you {role_addition}."
     
-    # Build custom instructions focused on both coding capabilities and context management
+    # Build custom instructions focusing heavily on reasoning capabilities
     instructions = []
     
     # Document the model's complete performance profile
     instructions.append(f"## {model_name} Performance Profile")
-    instructions.append(f"* Simple tasks: {score_simple}")
-    instructions.append(f"* Moderate tasks: {score_moderate}")
-    instructions.append(f"* Complex tasks: {score_complex}")
-    instructions.append(f"* Context window: {score_context_window}")
-    if bigbench_overall > 0.0:
-        instructions.append(f"* BIG-BENCH-HARD: {bigbench_overall}")
+    instructions.append("### BIG-BENCH-HARD Scores (Primary Capabilities)")
+    for category, avg_score in category_averages.items():
+        if avg_score > 0:
+            instructions.append(f"* {category.replace('_', ' ').title()}: {avg_score:.2f}")
+    instructions.append("")
+    instructions.append("### Standard Benchmark Scores (Secondary Capabilities)")
+    instructions.append(f"* Simple tasks: {score_simple:.2f}")
+    instructions.append(f"* Moderate tasks: {score_moderate:.2f}")
+    instructions.append(f"* Complex tasks: {score_complex:.2f}")
+    instructions.append(f"* Context window: {score_context_window:.2f}")
     instructions.append("")
     
-    # Add context window specific guidance
+    # Add specific task delegation guidance based on complexity scores
+    instructions.append("## Task Delegation Priorities")
+    instructions.append("This model should be preferentially used for:")
+    
+    # Sort categories by score and add specific task types
+    sorted_categories = sorted(
+        [(cat, score) for cat, score in category_averages.items()],
+        key=lambda x: x[1],
+        reverse=True
+    )
+    
+    for category, score in sorted_categories:
+        if score > 0.7:
+            priority = "High Priority"
+        elif score > 0.5:
+            priority = "Medium Priority"
+        elif score > 0.3:
+            priority = "Low Priority"
+        else:
+            continue
+            
+        cat_name = category.replace('_', ' ').title()
+        instructions.append(f"\n### {cat_name} Tasks ({priority})")
+        
+        # Add specific task types based on category
+        if category == "logical_reasoning":
+            instructions.append("* Complex conditional logic implementation")
+            instructions.append("* Decision tree development")
+            instructions.append("* Logic optimization tasks")
+        elif category == "algorithmic_thinking":
+            instructions.append("* Algorithm design and optimization")
+            instructions.append("* Data structure implementation")
+            instructions.append("* Performance optimization")
+        elif category == "abstract_reasoning":
+            instructions.append("* System architecture design")
+            instructions.append("* Design pattern application")
+            instructions.append("* Interface design")
+        elif category == "mathematics":
+            instructions.append("* Numerical computation")
+            instructions.append("* Mathematical algorithm implementation")
+            instructions.append("* Formula translation to code")
+        elif category == "code_generation":
+            instructions.append("* Complete function implementation")
+            instructions.append("* Class structure generation")
+            instructions.append("* API endpoint development")
+        elif category == "problem_solving":
+            instructions.append("* Bug fixing and debugging")
+            instructions.append("* Code refactoring")
+            instructions.append("* Feature implementation")
+    
+    # Add context window management guidance
     if score_context_window > 0.8:
-        instructions.append("## Memory & Context Management")
-        instructions.append("* This model has excellent context handling capability")
+        instructions.append("\n## Context Management")
         instructions.append("* Maximum context window: " + str(context_window) + " tokens")
-        instructions.append("* Can work with lengthy code files and requirements")
-        instructions.append("* Suitable for multi-part conversations with detailed context")
-        instructions.append("* Can retain understanding across complex interactions")
+        instructions.append("* Excellent at handling large, complex tasks")
+        instructions.append("* Can process multiple files simultaneously")
+        instructions.append("* Maintains coherent understanding across large codebases")
     elif score_context_window > 0.4:
-        instructions.append("## Memory & Context Management")
-        instructions.append("* This model has moderate context handling capability")
+        instructions.append("\n## Context Management")
         instructions.append("* Maximum context window: " + str(context_window) + " tokens")
-        instructions.append("* Works best when complex tasks are broken into smaller parts")
-        instructions.append("* May need occasional reminders about earlier parts of the conversation")
+        instructions.append("* Best with focused, well-scoped tasks")
+        instructions.append("* Process one file at a time")
+        instructions.append("* May need context refreshing for complex tasks")
     else:
-        instructions.append("## Memory & Context Management")
-        instructions.append("* This model has limited context handling capability")
+        instructions.append("\n## Context Management")
         instructions.append("* Maximum context window: " + str(context_window) + " tokens")
-        instructions.append("* Break large tasks into very small subtasks for best results")
-        instructions.append("* Keep conversations focused on one topic at a time")
+        instructions.append("* Requires very focused, minimal-context tasks")
+        instructions.append("* Process small code segments")
+        instructions.append("* Frequent context refreshing needed")
     
-    # Add specific coding strategies based on benchmark performance
-    instructions.append("")
-    instructions.append("## Coding Specialties")
+    # Add learned prompt improvements if available
+    if model.get('prompt_improvements'):
+        instructions.append("\n## Effective Prompting Strategies")
+        for improvement in model.get('prompt_improvements', {}).values():
+            if 'analysis' in improvement:
+                analysis = improvement['analysis']
+                if len(analysis) > 20 and 'error' not in analysis.lower():
+                    key_point = analysis.split('.')[0].strip()
+                    if len(key_point) > 10:
+                        instructions.append(f"* {key_point}")
     
-    if score_complex > 0.7 or bigbench_overall > 0.7:
-        instructions.append("* Advanced algorithm implementation and optimization")
-        instructions.append("* Complex problem decomposition and solution design")
-        instructions.append("* Design pattern application")
-    if score_moderate > 0.7 or bigbench_overall > 0.5:
-        instructions.append("* Function and class implementation")
-        instructions.append("* API design and integration")
-    if score_simple > 0.7:
-        instructions.append("* Basic script creation")
-        instructions.append("* Syntax explanation and error fixing")
-    
-    # If we have BIG-BENCH results, add specific task performance insights
-    if bigbench_tasks:
-        instructions.append("")
-        instructions.append("## Specialized Capabilities")
-        
-        # Add top 3 highest scoring BIG-BENCH tasks
-        sorted_tasks = sorted(bigbench_tasks, key=lambda x: x.get('Score', 0), reverse=True)[:3]
-        for task in sorted_tasks:
-            task_name = task.get('Task', '').replace('_', ' ').title()
-            task_score = task.get('Score', 0)
-            if task_score > 0.7:
-                instructions.append(f"* Strong performance in {task_name}")
-            elif task_score > 0.5:
-                instructions.append(f"* Moderate capability in {task_name}")
-    
-    # Add model-specific prompt strategies that were discovered during benchmarking
-    if coding_strategies:
-        instructions.append("")
-        instructions.append("## Effective Coding Strategies")
-        
-        # Add unique extracted coding strategies (limit to top 5)
-        unique_strategies = []
-        for strategy in coding_strategies:
-            strategy_normalized = strategy.lower()
-            # Check if this is a unique insight
-            if not any(strategy_normalized in existing.lower() for existing in unique_strategies):
-                unique_strategies.append(strategy)
-                if len(unique_strategies) >= 5:  # Limit to 5 strategies
-                    break
-                    
-        for strategy in unique_strategies:
-            instructions.append(f"* {strategy}")
-    
-    # Add specific instructions for use with Boomerang Mode
-    instructions.append("")
-    instructions.append("## Integration with Boomerang Mode")
-    instructions.append("Use this mode as part of RooCode's Boomerang Mode orchestration for these tasks:")
-    
-    if overall_score > 0.8:
-        instructions.append("* Complex code generation and refactoring")
-        instructions.append("* Architecture design and optimization")
-        instructions.append("* Debugging and problem-solving tasks")
-        instructions.append("")
-        instructions.append("When using with Boomerang Mode, leverage this model's large context window to handle complex tasks that require understanding multiple files or extensive context.")
-    elif overall_score > 0.5:
-        instructions.append("* Implementation of well-defined components")
-        instructions.append("* Writing clearly specified functions and classes")
-        instructions.append("* Analyzing and explaining existing code")
-        instructions.append("")
-        instructions.append("When delegating to this model via Boomerang Mode, break down tasks to fit within its context window and define clear boundaries for each subtask.")
-    else:
-        instructions.append("* Generating simple code snippets")
-        instructions.append("* Documentation and code comments")
-        instructions.append("* Answering basic programming questions")
-        instructions.append("")
-        instructions.append("This model works best with very small, focused subtasks when used with Boomerang Mode orchestration.")
-                
-    # Create a slug directly from the model_id to guarantee uniqueness
-    unique_slug = slugify(model_id)
-    
-    # Define appropriate groups based on model's capabilities, focused on coding tasks
+    # Define appropriate groups based heavily on BIG-BENCH-HARD performance
     groups = ["read"]
     
-    # Add edit capability if model is capable enough for coding tasks
-    if score_moderate > 0.5 or score_complex > 0.5:
-        # For coding models, allow editing of code files only based on capabilities
+    # Add edit capability based on weighted scores
+    if bigbench_overall > 0.7 or (
+        bigbench_overall > 0.5 and 
+        category_averages.get('code_generation', 0) > 0.6
+    ):
+        # Full code editing capabilities for high-performing models
         edit_restrictions = {
             "fileRegex": "\\.(py|js|ts|jsx|tsx|java|cpp|c|h|hpp|rb|go|rs|php|html|css|json|md)$",
-            "description": "Code and documentation files"
+            "description": "All code and documentation files"
+        }
+        groups.append(["edit", edit_restrictions])
+    elif bigbench_overall > 0.5 or score_complex > 0.7:
+        # Limited code editing for moderately capable models
+        edit_restrictions = {
+            "fileRegex": "\\.(py|js|ts|md|txt)$",
+            "description": "Python, JavaScript, and documentation files"
         }
         groups.append(["edit", edit_restrictions])
     else:
-        # Limited editing capabilities
+        # Documentation-only editing for lower-performing models
         edit_restrictions = {
             "fileRegex": "\\.(md|txt)$",
             "description": "Documentation files only"
         }
         groups.append(["edit", edit_restrictions])
     
-    # Add command capability for models good at coding
-    if overall_score > 0.7:
+    # Add command capability for models with strong reasoning abilities
+    if bigbench_overall > 0.7 or category_averages.get('problem_solving', 0) > 0.7:
         groups.append("command")
     
-    # Add MCP capability for all models as they're already integrated
+    # Add MCP capability for all models
     groups.append("mcp")
-
-    # Create mode entry according to RooCode spec with explicit context window settings
+    
+    # Create unique slug
+    unique_slug = slugify(model_id)
+    
+    # Create mode entry
     mode_entry = {
         "slug": unique_slug,
         "name": model_name,
@@ -225,38 +231,27 @@ def generate_mode_entry(model):
         "groups": groups,
         "source": "global",
         "customInstructions": "\n".join(instructions),
-        "contextWindow": context_window,  # Add explicit context window size
-        "maxResponseTokens": min(2000, int(context_window * 0.25)) if context_window else 2000,  # Reserve 25% for response
+        "contextWindow": context_window,
+        "maxResponseTokens": min(2000, int(context_window * 0.25)) if context_window else 2000,
         "benchmarkData": {
             "scores": {
-                "simple": score_simple,
-                "moderate": score_moderate,
-                "complex": score_complex,
-                "context_window": score_context_window,
-                "bigbench": bigbench_overall,
+                "bigbench": {
+                    "overall": bigbench_overall,
+                    "raw": bigbench_raw,
+                    "categories": category_averages
+                },
+                "standard": {
+                    "simple": score_simple,
+                    "moderate": score_moderate,
+                    "complex": score_complex,
+                    "context_window": score_context_window
+                },
                 "overall": overall_score
             },
             "lastUpdated": model.get('last_updated', '')
         }
     }
     
-    # Store benchmark data
-    if model.get('last_updated'):
-        mode_entry["benchmarkData"]["lastUpdated"] = model.get('last_updated', '')
-        
-        # Only include clean, useful prompt improvements for coding tasks
-        if improved_prompts:
-            filtered_improvements = {}
-            for task, data in improved_prompts.items():
-                if 'HTTPConnectionPool' not in str(data.get('analysis', '')):
-                    filtered_improvements[task] = {
-                        "improved": data.get('improved', ''),
-                        "original": data.get('original', '')
-                    }
-            
-            if filtered_improvements:
-                mode_entry["benchmarkData"]["promptImprovements"] = filtered_improvements
-
     return mode_entry
 
 def extract_strategy_from_analysis(analysis, context="coding"):
