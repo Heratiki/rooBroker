@@ -7,6 +7,7 @@ from rich.table import Table
 from rich.prompt import Prompt, IntPrompt
 from rich.panel import Panel
 from rich import box
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from lmstudio_model_discovery import discover_lmstudio_models, benchmark_lmstudio_models
 from lmstudio_modelstate import update_modelstate_json
@@ -159,57 +160,139 @@ def select_models(models):
     console.print(f"[green]Selected {len(selected_models)} models for benchmarking.[/green]")
     return selected_models
 
+def select_models_by_number(models):
+    """Helper function to let user select which models to benchmark by number in the list"""
+    # Create a table with numbered models
+    table = Table(title="Available Models", box=box.SIMPLE)
+    table.add_column("#", style="yellow", no_wrap=True)
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Family", style="magenta")
+    table.add_column("Context Window", style="green")
+    
+    # Add rows with index numbers
+    for i, m in enumerate(models, 1):
+        table.add_row(
+            str(i),
+            str(m.get("id", "")),
+            str(m.get("family", "")),
+            str(m.get("context_window", ""))
+        )
+    
+    console.print(table)
+    
+    # Prompt for selection
+    console.print("[bold cyan]Select models to benchmark:[/bold cyan]")
+    console.print("Enter model numbers (comma-separated), 'all' for all models, or '0' to cancel")
+    selection = Prompt.ask("Your selection", default="all")
+    
+    # Process selection
+    if selection.strip().lower() == "all":
+        console.print(f"[green]Selected all {len(models)} models for benchmarking.[/green]")
+        return models
+    
+    if selection.strip() == "0":
+        console.print("[yellow]Benchmarking canceled.[/yellow]")
+        return []
+    
+    try:
+        # Parse comma-separated numbers
+        selected_indices = [int(idx.strip()) for idx in selection.split(",")]
+        
+        # Check for valid indices
+        valid_indices = [idx for idx in selected_indices if 1 <= idx <= len(models)]
+        if not valid_indices:
+            console.print("[yellow]No valid model numbers selected.[/yellow]")
+            return []
+        
+        # Convert indices to actual models (adjusting for 1-based indexing)
+        selected_models = [models[idx-1] for idx in valid_indices]
+        
+        # Show selection summary
+        selected_ids = [m.get("id", "") for m in selected_models]
+        console.print(f"[green]Selected {len(selected_models)} models: {', '.join(selected_ids)}[/green]")
+        return selected_models
+        
+    except ValueError:
+        console.print("[yellow]Invalid input. Please use numbers separated by commas.[/yellow]")
+        return []
+
 def run_and_merge_bigbench(models_to_benchmark, existing_results, console=None):
     """Runs BIG-BENCH-HARD and merges results into the existing list."""
     if not console:
         console = Console() # Ensure console is available
 
-    console.print("\n[cyan]Running BIG-BENCH-HARD benchmarks (this might take significantly longer)...[/cyan]")
+    console.print("\n[bold cyan]Starting BIG-BENCH-HARD benchmarks[/bold cyan]")
+    console.print("[yellow]Note: These benchmarks test complex reasoning tasks and may take longer to complete.[/yellow]")
 
     # Create a map of existing results for easy lookup and update
     results_map = {r.get("model_id"): r for r in existing_results}
+    
+    # Setup main progress tracker for all models
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=console
+    ) as progress:
+        overall_task = progress.add_task(
+            f"[cyan]Running BIG-BENCH-HARD for {len(models_to_benchmark)} models...", 
+            total=len(models_to_benchmark)
+        )
+        
+        # Process each model
+        for model_index, model in enumerate(models_to_benchmark):
+            model_id = model.get("id")
+            if not model_id:
+                console.print("[yellow]Skipping model with no ID for BIG-BENCH-HARD.[/yellow]")
+                progress.update(overall_task, advance=1)
+                continue
 
-    for model in models_to_benchmark:
-        model_id = model.get("id")
-        if not model_id:
-            console.print("[yellow]Skipping model with no ID for BIG-BENCH-HARD.[/yellow]")
-            continue
+            # Update progress description to show current model
+            progress.update(
+                overall_task, 
+                description=f"[cyan]BIG-BENCH-HARD [{model_index+1}/{len(models_to_benchmark)}]: {model_id}"
+            )
+            
+            try:
+                # Run the benchmark with the enhanced UI in lmstudio_deepeval.py
+                console.print(f"\n[bold cyan]═════ BIG-BENCH-HARD: {model_id} ═════[/bold cyan]")
+                bb_result_data = benchmark_with_bigbench(
+                    model, 
+                    api_endpoint="http://localhost:1234/v1/chat/completions", 
+                    console=console
+                )
 
-        console.print(f"\n--- Running BIG-BENCH-HARD for [bold]{model_id}[/bold] ---")
-        try:
-            # Pass the model dict and console to the bigbench function
-            bb_result_data = benchmark_with_bigbench(model, console=console)
-
-            # Find the corresponding standard result to update
-            if model_id in results_map:
-                if bb_result_data:
-                    # bb_result_data contains 'bigbench_scores', 'predictions', 'raw_results'
-                    results_map[model_id].update(bb_result_data)
-                    console.print(f"[green]BIG-BENCH-HARD completed and results merged for {model_id}.[/green]")
+                # Handle results
+                if model_id in results_map:
+                    if bb_result_data:
+                        # bb_result_data contains 'bigbench_scores', 'predictions', 'raw_results'
+                        results_map[model_id].update(bb_result_data)
+                        console.print(f"[green]✓ Results merged successfully for {model_id}[/green]")
+                    else:
+                        console.print(f"[yellow]⚠ No valid results returned for {model_id}[/yellow]")
+                        results_map[model_id]["bigbench_status"] = "No results returned"
                 else:
-                    console.print(f"[yellow]BIG-BENCH-HARD did not return results for {model_id}.[/yellow]")
-                    results_map[model_id]["bigbench_status"] = "No results returned"
-            else:
-                # Should not happen if called after standard benchmark, but handle defensively
-                console.print(f"[yellow]Warning: No standard benchmark result found for {model_id} to merge BBH results into.[/yellow]")
-                # Optionally, create a new entry if needed, though less ideal
-                # new_entry = {"model_id": model_id, "id": model_id}
-                # if bb_result_data:
-                #     new_entry.update(bb_result_data)
-                # existing_results.append(new_entry)
-
-
-        except Exception as e:
-            console.print(f"[bold red]Error running BIG-BENCH-HARD for {model_id}: {e}[/bold red]")
-            if model_id in results_map:
-                results_map[model_id]["bigbench_error"] = str(e)
-            else:
-                 console.print(f"[yellow]Warning: No standard benchmark result found for {model_id} to record BBH error.[/yellow]")
-
+                    console.print(f"[yellow]⚠ No standard benchmark result found to merge BBH results into.[/yellow]")
+            except Exception as e:
+                console.print(f"[bold red]✗ Error running BIG-BENCH-HARD for {model_id}: {e}[/bold red]")
+                if model_id in results_map:
+                    results_map[model_id]["bigbench_error"] = str(e)
+            
+            # Update overall progress
+            progress.update(overall_task, advance=1)
+    
+    # Final summary
+    bb_models_count = len([r for r in existing_results if "bigbench_scores" in r])
+    if bb_models_count > 0:
+        console.print(f"\n[bold green]✓ BIG-BENCH-HARD completed for {bb_models_count} of {len(models_to_benchmark)} models[/bold green]")
+    else:
+        console.print("\n[yellow]⚠ No models completed BIG-BENCH-HARD successfully[/yellow]")
 
     # The existing_results list has been modified in-place through the map
     return existing_results
-
 
 def run_proxy_with_ui():
     """Run the context optimization proxy with rich UI feedback"""
@@ -250,28 +333,27 @@ def main_menu():
                 console.print("[cyan]Discovering models...[/cyan]")
                 models = discover_lmstudio_models()
                 console.print(f"[green]Found {len(models)} models![/green]")
-                pretty_print_models(models)
                 
-                if Prompt.ask("Benchmark these models?", choices=["y", "n"], default="y") == "y":
-                    selected_models = select_models(models)
-                    if not selected_models:
-                        console.print("[yellow]No models selected.[/yellow]")
-                        continue # Go back to menu
+                # Show models with numbers and allow direct selection
+                selected_models = select_models_by_number(models)
+                if not selected_models:
+                    console.print("[yellow]No models selected for benchmarking.[/yellow]")
+                    continue # Go back to menu
 
-                    console.print("[cyan]Running standard benchmarks for selected models...[/cyan]")
-                    # Run standard benchmarks first
-                    results = benchmark_lmstudio_models(selected_models, console=console)
-                    console.print("[green]Standard benchmarking complete![/green]")
-                    pretty_print_benchmarks(results) # Show standard results
+                console.print("[cyan]Running standard benchmarks for selected models...[/cyan]")
+                # Run standard benchmarks first
+                results = benchmark_lmstudio_models(selected_models)
+                console.print("[green]Standard benchmarking complete![/green]")
+                pretty_print_benchmarks(results) # Show standard results
 
-                    # Now, ask about Big Bench Hard
-                    if Prompt.ask("\nRun additional BIG-BENCH-HARD benchmarks (can be slow)?", choices=["y", "n"], default="n") == "y":
-                        # Run BBH and merge results into the existing 'results' list
-                        results = run_and_merge_bigbench(selected_models, results, console=console)
-                        console.print("[green]BIG-BENCH-HARD benchmarking complete![/green]")
-                        pretty_print_benchmarks(results) # Show potentially updated results
-                    else:
-                         console.print("[cyan]Skipping BIG-BENCH-HARD benchmarks.[/cyan]")
+                # Now, ask about Big Bench Hard
+                if Prompt.ask("\nRun additional BIG-BENCH-HARD benchmarks (can be slow)?", choices=["y", "n"], default="n") == "y":
+                    # Run BBH and merge results into the existing 'results' list
+                    results = run_and_merge_bigbench(selected_models, results)
+                    console.print("[green]BIG-BENCH-HARD benchmarking complete![/green]")
+                    pretty_print_benchmarks(results) # Show potentially updated results
+                else:
+                     console.print("[cyan]Skipping BIG-BENCH-HARD benchmarks.[/cyan]")
             except Exception as e:
                 console.print(f"[red]Error discovering/benchmarking models: {e}[/red]")
         
@@ -307,7 +389,7 @@ def main_menu():
                 
                 console.print("[cyan]Benchmarking all models (standard)...[/cyan]")
                 # Run standard benchmarks only for "Run All Steps"
-                results = benchmark_lmstudio_models(models, console=console)
+                results = benchmark_lmstudio_models(models)
                 console.print("[green]Standard benchmarking complete![/green]")
                 pretty_print_benchmarks(results)
                 # BBH is not run automatically in this mode
@@ -390,7 +472,7 @@ def main():
 
             console.print(f"Running standard benchmarks for {len(models_to_benchmark)} models...")
             # Run standard benchmarks first
-            results = benchmark_lmstudio_models(models_to_benchmark, console=console)
+            results = benchmark_lmstudio_models(models_to_benchmark)
             console.print("[green]Standard benchmarking complete.[/green]")
 
             # Run Big Bench Hard if requested via flag

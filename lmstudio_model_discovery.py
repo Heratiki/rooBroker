@@ -425,12 +425,11 @@ def benchmark_lmstudio_models(
             if run_bigbench:
                 try:
                     print("\nRunning BIG-BENCH-HARD benchmarks...")
-                    # Pass console=None here since RICH is not available
+                    # Pass the model dict to the bigbench function
                     bigbench_results = benchmark_with_bigbench(
                         model,
                         api_endpoint=api_endpoint,
-                        timeout=get_model_timeout(model),
-                        console=None 
+                        timeout=get_model_timeout(model)
                     )
                     print(f"  BIG-BENCH Overall Score: {bigbench_results['bigbench_scores']['overall']:.2f}")
                 except Exception as e:
@@ -880,8 +879,7 @@ def benchmark_lmstudio_models(
                         bigbench_results = benchmark_with_bigbench(
                             model,
                             api_endpoint=api_endpoint,
-                            timeout=model_timeout,
-                            console=console
+                            timeout=model_timeout
                         )
                         print(f"[DEBUG] benchmark_with_bigbench returned for {model_id}. Result type: {type(bigbench_results)}")
                         
