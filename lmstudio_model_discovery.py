@@ -425,10 +425,12 @@ def benchmark_lmstudio_models(
             if run_bigbench:
                 try:
                     print("\nRunning BIG-BENCH-HARD benchmarks...")
+                    # Pass console=None here since RICH is not available
                     bigbench_results = benchmark_with_bigbench(
                         model,
                         api_endpoint=api_endpoint,
-                        timeout=get_model_timeout(model)
+                        timeout=get_model_timeout(model),
+                        console=None 
                     )
                     print(f"  BIG-BENCH Overall Score: {bigbench_results['bigbench_scores']['overall']:.2f}")
                 except Exception as e:
@@ -536,6 +538,24 @@ def benchmark_lmstudio_models(
                 failures = 0
                 prompt_improvements = {}
                 
+                # Get appropriate timeout for this model *before* initializing result
+                model_timeout = get_model_timeout(model)
+
+                # Initialize the result dict for the current model *early*
+                result = {
+                    "model_id": model_id,
+                    "context_window": context_window,
+                    "score_simple": 0.0,
+                    "score_moderate": 0.0,
+                    "score_complex": 0.0,
+                    "score_context_window": 0.0,
+                    "failures": 0,
+                    "last_updated": datetime.utcnow().isoformat() + "Z",
+                    "prompt_improvements": {},
+                    "timeout_used": model_timeout # Now model_timeout is defined
+                }
+                bigbench_results = None  # Ensure this is reset for each model
+                
                 # Update header
                 layout["header"].update(f"[bold blue]Model {i+1}/{len(models)}: {model_id}[/bold blue]")
                 
@@ -548,8 +568,6 @@ def benchmark_lmstudio_models(
                     total=num_tasks
                 )
                 
-                # Get appropriate timeout for this model
-                model_timeout = get_model_timeout(model)
                 
                 # Find suitable analyzer and improver models
                 other_models = [m for m in all_model_ids if m != model_id]
@@ -568,11 +586,11 @@ def benchmark_lmstudio_models(
                     ])
                 if run_bigbench:
                     bench_rows.append([
-                        "BIG-BENCH-HARD",
-                        "Pending",
+                        "[bold]BIG-BENCH-HARD[/bold]",  # Make title bold
+                        "⏳ Pending",  # Add emoji for better visibility
                         "0.0",
                         "-",
-                        "Waiting to start..."
+                        "Will run after standard benchmarks..."
                     ])
                 
                 # Create initial benchmark table
@@ -803,6 +821,7 @@ def benchmark_lmstudio_models(
                     
                     # Store final score
                     scores[bench["name"]] = best_score
+                    result[f"score_{bench['name']}"] = best_score  # Update result dict directly
                     
                     # Update benchmark status
                     if best_score == 1.0:
@@ -833,78 +852,110 @@ def benchmark_lmstudio_models(
                     # Update progress
                     model_progress.update(model_task_id, advance=1)
                 
+                # Explicitly check if we should run BIG-BENCH
+                print(f"\n[DEBUG] Finished standard benchmarks for {model_id}. Checking run_bigbench flag: {run_bigbench}")
+                
                 # Run BIG-BENCH-HARD benchmarks if enabled
                 if run_bigbench:
+                    print(f"[DEBUG] Entering BIG-BENCH-HARD section for {model_id}")
                     bigbench_idx = len(bench_rows) - 1
                     bench_rows[bigbench_idx][1] = "Running"
                     bench_rows[bigbench_idx][4] = "Running BIG-BENCH-HARD benchmarks..."
                     
-                    # Create new table with updated data
+                    # Create new table with updated data and force display update
                     new_table = Table(title=f"Benchmarking {model_id}", box=box.ROUNDED)
                     new_table.add_column("Task", style="cyan")
                     new_table.add_column("Status", style="yellow")
                     new_table.add_column("Score", style="green")
                     new_table.add_column("Attempts", style="magenta")
                     new_table.add_column("Details", style="blue")
-                    
                     for row in bench_rows:
                         new_table.add_row(*row)
-                    
                     layout["content"].update(new_table)
                     bench_table = new_table
+                    live.refresh()  # Explicitly refresh the live display
                     
                     try:
+                        print(f"[DEBUG] Calling benchmark_with_bigbench for {model_id}")
                         bigbench_results = benchmark_with_bigbench(
                             model,
                             api_endpoint=api_endpoint,
-                            timeout=model_timeout
+                            timeout=model_timeout,
+                            console=console
                         )
-                        bench_rows[bigbench_idx][1] = "✅ Success"
-                        bench_rows[bigbench_idx][2] = f"{bigbench_results['bigbench_scores']['overall']:.2f}"
-                        bench_rows[bigbench_idx][4] = f"Completed ({len(bigbench_results['predictions'])} tasks)"
+                        print(f"[DEBUG] benchmark_with_bigbench returned for {model_id}. Result type: {type(bigbench_results)}")
+                        
+                        if bigbench_results and isinstance(bigbench_results, dict) and 'bigbench_scores' in bigbench_results:
+                            print(f"[DEBUG] BIG-BENCH results received and valid for {model_id}")
+                            # Process results (get category scores, details etc.)
+                            categories = {}
+                            for task in bigbench_results['bigbench_scores'].get('tasks', []):
+                                cat = task.get('complexity_category', 'other')
+                                if cat not in categories:
+                                    categories[cat] = []
+                                categories[cat].append(task['weighted_score'])
+                            category_scores = {cat: sum(scores) / len(scores) for cat, scores in categories.items()}
+                            category_details = []
+                            for cat, score in category_scores.items():
+                                if cat != 'other':
+                                    weight = bigbench_results['bigbench_scores'].get('weights_used', {}).get(cat, 1.0)
+                                    cat_name = cat.replace('_', ' ').title()
+                                    category_details.append(f"{cat_name}: {score:.2f} ({weight}x)")
+                            category_summary = " | ".join(category_details)
+
+                            # Update display row
+                            bench_rows[bigbench_idx][1] = "✅ Success"
+                            bench_rows[bigbench_idx][2] = f"{bigbench_results['bigbench_scores']['overall']:.2f}"
+                            bench_rows[bigbench_idx][4] = f"Categories: {category_summary}"
+                            
+                            # Add results to the main result dictionary for this model
+                            result["bigbench_scores"] = bigbench_results["bigbench_scores"]
+                            result["bigbench_predictions"] = bigbench_results.get("predictions")
+                            result["bigbench_raw_results"] = bigbench_results.get("raw_results")
+                            print(f"[DEBUG] Added BIG-BENCH scores to result dict for {model_id}")
+
+                        elif bigbench_results is None:
+                             print(f"[DEBUG] benchmark_with_bigbench returned None for {model_id}")
+                             bench_rows[bigbench_idx][1] = "❌ Failed"
+                             bench_rows[bigbench_idx][2] = "0.0"
+                             bench_rows[bigbench_idx][4] = "Benchmark function returned None"
+                        else:
+                            print(f"[DEBUG] BIG-BENCH results missing expected data structure for {model_id}. Received: {bigbench_results}")
+                            bench_rows[bigbench_idx][1] = "❌ Failed"
+                            bench_rows[bigbench_idx][2] = "0.0"
+                            bench_rows[bigbench_idx][4] = "Invalid result format"
+                        
                     except Exception as e:
+                        print(f"[DEBUG] Exception during BIG-BENCH run for {model_id}: {e}")
+                        import traceback
+                        traceback.print_exc()
                         bench_rows[bigbench_idx][1] = "❌ Failed"
                         bench_rows[bigbench_idx][2] = "0.0"
                         bench_rows[bigbench_idx][4] = f"Error: {str(e)[:50]}..."
-                        bigbench_results = None
+                        bigbench_results = None  # Ensure results are None on failure
                     
-                    # Create new table with updated data
+                    # Final table update after BIG-BENCH attempt
                     new_table = Table(title=f"Benchmarking {model_id}", box=box.ROUNDED)
                     new_table.add_column("Task", style="cyan")
                     new_table.add_column("Status", style="yellow")
                     new_table.add_column("Score", style="green")
                     new_table.add_column("Attempts", style="magenta")
                     new_table.add_column("Details", style="blue")
-                    
                     for row in bench_rows:
                         new_table.add_row(*row)
-                    
                     layout["content"].update(new_table)
                     bench_table = new_table
+                    live.refresh()  # Refresh again after update
                     
+                    # Update progress only if BIG-BENCH was supposed to run
                     model_progress.update(model_task_id, advance=1)
-                
-                # Construct result for this model
-                result = {
-                    "model_id": model_id,
-                    "context_window": context_window,
-                    "score_simple": scores.get("simple", 0.0),
-                    "score_moderate": scores.get("moderate", 0.0),
-                    "score_complex": scores.get("complex", 0.0),
-                    "score_context_window": scores.get("context_window", 0.0),
-                    "failures": failures,
-                    "last_updated": datetime.utcnow().isoformat() + "Z",
-                    "prompt_improvements": prompt_improvements,
-                    "timeout_used": model_timeout  # Store the timeout used for future reference
-                }
-                
-                # Add BIG-BENCH results if available
-                if bigbench_results:
-                    result["bigbench_scores"] = bigbench_results["bigbench_scores"]
-                    result["bigbench_predictions"] = bigbench_results["predictions"]
+                    print(f"[DEBUG] Advanced model progress after BIG-BENCH attempt for {model_id}")
+                else:
+                    print(f"[DEBUG] Skipping BIG-BENCH-HARD for {model_id} as run_bigbench is False")
 
-                # Add to results
+                # Add the fully constructed result to the overall list
                 results.append(result)
+                print(f"[DEBUG] Appended final result for {model_id} to results list. Content: {result}")
                 
                 # Update state after each model
                 layout["footer"].update("[bold green]Saving model state...[/bold green]")
@@ -921,23 +972,63 @@ def benchmark_lmstudio_models(
                 summary_table = Table(title=f"Summary for {model_id}", box=box.SIMPLE)
                 summary_table.add_column("Task", style="cyan")
                 summary_table.add_column("Score", style="green")
-                summary_table.add_row("Simple Arithmetic", f"{scores.get('simple', 0.0):.2f}")
-                summary_table.add_row("Function Creation", f"{scores.get('moderate', 0.0):.2f}")
-                summary_table.add_row("Code Refactoring", f"{scores.get('complex', 0.0):.2f}")
-                summary_table.add_row("Context Window Test", f"{scores.get('context_window', 0.0):.2f}")
+                summary_table.add_column("Details", style="blue")
+
+                # Standard benchmarks
+                summary_table.add_row("Simple Arithmetic", f"{scores.get('simple', 0.0):.2f}", "Basic computation task")
+                summary_table.add_row("Function Creation", f"{scores.get('moderate', 0.0):.2f}", "Writing simple functions")
+                summary_table.add_row("Code Refactoring", f"{scores.get('complex', 0.0):.2f}", "Complex code transformation")
+                summary_table.add_row("Context Window Test", f"{scores.get('context_window', 0.0):.2f}", "Memory capacity test")
+
+                # Add BIG-BENCH-HARD results with detailed breakdown
                 if bigbench_results:
-                    summary_table.add_row("BIG-BENCH Score", f"{bigbench_results['bigbench_scores']['overall']:.2f}")
-                
-                # Calculate overall score
-                overall = (
+                    scores = bigbench_results['bigbench_scores']
+                    summary_table.add_row("─" * 20, "─" * 10, "─" * 30)  # Separator
+                    summary_table.add_row(
+                        "[bold]BIG-BENCH-HARD Overall[/bold]", 
+                        f"[bold]{scores['overall']:.2f}[/bold]",
+                        f"Raw score: {scores['raw_overall']:.2f}"
+                    )
+                    
+                    # Add category breakdown
+                    if 'tasks' in scores:
+                        categories = {}
+                        for task in scores['tasks']:
+                            cat = task.get('complexity_category', 'other')
+                            if cat not in categories:
+                                categories[cat] = []
+                            categories[cat].append(task['weighted_score'])
+                        
+                        # Show each category's average score
+                        for cat, scores in categories.items():
+                            if cat != 'other':  # Skip 'other' category
+                                avg_score = sum(scores) / len(scores)
+                                weight = bigbench_results['bigbench_scores'].get('weights_used', {}).get(cat, 1.0)
+                                cat_name = cat.replace('_', ' ').title()
+                                summary_table.add_row(
+                                    f"  • {cat_name}",
+                                    f"{avg_score:.2f}",
+                                    f"Weight: {weight:.1f}x ({len(scores)} tasks)"
+                                )
+
+                # Add overall weighted score
+                standard_avg = (
                     scores.get('simple', 0.0) + 
                     scores.get('moderate', 0.0) + 
                     scores.get('complex', 0.0) + 
                     scores.get('context_window', 0.0)
                 ) / 4
+
+                overall = standard_avg
                 if bigbench_results:
-                    overall = (overall + bigbench_results['bigbench_scores']['overall']) / 2
-                summary_table.add_row("Overall", f"{overall:.2f}")
+                    overall = standard_avg * 0.4 + bigbench_results['bigbench_scores']['overall'] * 0.6
+                
+                summary_table.add_row("─" * 20, "─" * 10, "─" * 30)  # Separator
+                summary_table.add_row(
+                    "[bold]Overall Score[/bold]",
+                    f"[bold]{overall:.2f}[/bold]",
+                    "60% BIG-BENCH + 40% Standard" if bigbench_results else "Standard benchmarks only"
+                )
                 
                 layout["content"].update(summary_table)
                 
