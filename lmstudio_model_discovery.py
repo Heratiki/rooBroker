@@ -1,5 +1,5 @@
 import requests
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import json
 import time
 from datetime import datetime
@@ -168,6 +168,92 @@ def get_model_timeout(model: Dict[str, Any]) -> int:
     
     # Default timeout for smaller models
     return 30  # 30 seconds
+
+def call_lmstudio_with_max_context(
+    model_id: str,
+    messages: List[Dict[str, str]],
+    api_endpoint: str = CHAT_COMPLETIONS_ENDPOINT,
+    timeout: int = 60,
+    temperature: float = 0.7,
+    max_tokens: int = 2000,
+    optimize_context: bool = True
+) -> Dict[str, Any]:
+    """
+    Make an API call to LM Studio with optimized context handling.
+    
+    Args:
+        model_id: ID of the LM Studio model to use
+        messages: Standard chat messages array with role/content objects
+        api_endpoint: LM Studio API endpoint
+        timeout: Timeout in seconds
+        temperature: Model temperature setting
+        max_tokens: Maximum tokens to generate
+        optimize_context: Whether to optimize context window usage
+        
+    Returns:
+        The API response as a dictionary
+    """
+    # Create the base payload
+    payload = {
+        "model": model_id,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    
+    if optimize_context:
+        # Try to get model context window info
+        model_info = None
+        try:
+            response = requests.get(LM_STUDIO_MODELS_ENDPOINT, timeout=5)
+            if response.status_code == 200:
+                models_data = response.json().get("data", [])
+                for model in models_data:
+                    if model.get("id") == model_id or model.get("name") == model_id:
+                        model_info = model
+                        break
+        except Exception as e:
+            print(f"Warning: Could not fetch model info: {str(e)}")
+        
+        # If we found model info with context window, use it to optimize
+        if model_info:
+            context_length = model_info.get("context_length") or model_info.get("context_window")
+            if context_length and isinstance(context_length, (int, float)):
+                print(f"Setting max context for {model_id} to {context_length}")
+                
+                # Calculate how many tokens we should reserve for the response
+                # Using a reasonable default of 25% of context for response
+                response_buffer = min(max_tokens, max(1000, int(context_length * 0.25)))
+                
+                # Set max tokens to ensure we use all available context
+                payload["max_tokens"] = response_buffer
+                
+                # Make sure we're not exceeding the model's capabilities
+                input_token_limit = context_length - response_buffer
+                
+                # We'd ideally count tokens here, but as a simple workaround,
+                # we'll compute a rough estimate and add a warning in the logs
+                estimated_token_count = sum(len(msg.get("content", "")) // 4 for msg in messages)
+                if estimated_token_count > input_token_limit * 0.9:  # 90% of limit
+                    print(f"Warning: Input may exceed token limit. Est: {estimated_token_count}, Limit: {input_token_limit}")
+            else:
+                # If no context window info, use the provided max_tokens
+                payload["max_tokens"] = max_tokens
+        else:
+            # If model info not found, use the provided max_tokens
+            payload["max_tokens"] = max_tokens
+    else:
+        # No optimization requested, use provided max_tokens
+        payload["max_tokens"] = max_tokens
+    
+    # Make the API call
+    try:
+        response = requests.post(api_endpoint, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        error_msg = f"Error calling LM Studio API: {str(e)}"
+        print(error_msg)
+        raise RuntimeError(error_msg)
 
 def benchmark_lmstudio_models(
     models: List[Dict[str, Any]],

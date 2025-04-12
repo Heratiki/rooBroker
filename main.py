@@ -1,5 +1,7 @@
 import sys
 import json
+import argparse
+import os
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Prompt, IntPrompt
@@ -9,6 +11,7 @@ from rich import box
 from lmstudio_model_discovery import discover_lmstudio_models, benchmark_lmstudio_models
 from lmstudio_modelstate import update_modelstate_json
 from lmstudio_roomodes import update_roomodes
+from lmstudio_context_proxy import run_proxy_server
 
 console = Console()
 
@@ -18,8 +21,9 @@ def display_menu():
         "[green]1.[/green] Discover & Benchmark Models\n"
         "[green]2.[/green] Manual Save Model State (Optional)\n"
         "[green]3.[/green] Update Roomodes\n"
-        "[green]4.[/green] Run All Steps\n"
-        "[green]5.[/green] Exit",
+        "[green]4.[/green] Run Context Optimization Proxy\n"
+        "[green]5.[/green] Run All Steps\n"
+        "[green]6.[/green] Exit",
         title="Main Menu",
         border_style="bright_blue"
     ))
@@ -84,96 +88,188 @@ def select_models(models):
     console.print(f"[green]Selected {len(selected_models)} models for benchmarking.[/green]")
     return selected_models
 
-def main():
-    models = []
-    benchmark_results = []
-    
-    # Try to load previous state at startup
+def run_proxy_with_ui():
+    """Run the context optimization proxy with rich UI feedback"""
     try:
-        with open(".modelstate.json", "r", encoding="utf-8") as f:
-            state_data = json.load(f)
-            
-        if isinstance(state_data, dict):
-            if "models" in state_data:
-                # Format: {"models": [...]}
-                models = state_data["models"]
-                benchmark_results = models  # Assuming model data contains benchmark results
-                console.print(f"[green]Loaded {len(models)} models from previous session[/green]")
-            else:
-                # Format: {model_id: model_data, ...}
-                models_list = list(state_data.values())
-                models = models_list
-                benchmark_results = models_list
-                console.print(f"[green]Loaded {len(models)} models from previous session[/green]")
-    except (FileNotFoundError, json.JSONDecodeError):
-        console.print("[yellow]No previous session data found[/yellow]")
+        # Allow user to customize port
+        port = IntPrompt.ask(
+            "Enter port for the proxy server",
+            default=1235
+        )
+        
+        console.print(Panel.fit(
+            "[bold]The proxy will now start running.[/bold]\n\n"
+            f"Point Roo Code to use [cyan]http://localhost:{port}[/cyan] instead of http://localhost:1234\n\n"
+            "Press Ctrl+C to stop the proxy and return to the menu.",
+            title="Context Optimization Proxy",
+            border_style="green"
+        ))
+        
+        # Set the proxy port
+        import lmstudio_context_proxy
+        lmstudio_context_proxy.PROXY_PORT = port
+        
+        # Start the proxy server
+        run_proxy_server()
+    except KeyboardInterrupt:
+        console.print("[yellow]Proxy server stopped by user.[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error running proxy server: {e}[/red]")
 
+def main_menu():
+    """Show the main menu and handle user input"""
     while True:
         display_menu()
-        choice = Prompt.ask("[bold yellow]Select an option[/bold yellow]", choices=["1", "2", "3", "4", "5"])
-
-        if choice == "1":
-            console.print("[bold cyan]Discovering models...[/bold cyan]")
+        choice = IntPrompt.ask("Select an option", default=1)
+        
+        if choice == 1:  # Discover & Benchmark
             try:
+                console.print("[cyan]Discovering models...[/cyan]")
                 models = discover_lmstudio_models()
+                console.print(f"[green]Found {len(models)} models![/green]")
                 pretty_print_models(models)
-                # Save discovered models immediately
-                save_modelstate(models, "Discovered models saved to .modelstate.json")
-                # Let user select models for benchmarking
-                models = select_models(models)
-                console.print("[bold cyan]Benchmarking selected models...[/bold cyan]")
-                benchmark_results = benchmark_lmstudio_models(models)
-                pretty_print_benchmarks(benchmark_results)
-                # Results already saved by the benchmark function after each model
-                console.print("[green]Benchmark results saved to .modelstate.json[/green]")
+                
+                if Prompt.ask("Benchmark these models?", choices=["y", "n"], default="y") == "y":
+                    selected_models = select_models(models)
+                    console.print("[cyan]Benchmarking selected models...[/cyan]")
+                    results = benchmark_lmstudio_models(selected_models)
+                    console.print("[green]Benchmarking complete![/green]")
+                    pretty_print_benchmarks(results)
             except Exception as e:
-                console.print(f"[red]Error during discovery and benchmarking:[/red] {e}")
-
-        elif choice == "2":
-            if not benchmark_results:
-                console.print("[yellow]No benchmark results available. Running manual save will create an empty state file.[/yellow]")
-                if Prompt.ask("Continue anyway?", choices=["y", "n"], default="n") == "n":
-                    continue
-            console.print("[bold cyan]Manually saving current model state...[/bold cyan]")
-            save_modelstate(benchmark_results, "Model state manually saved to .modelstate.json")
-            console.print("[green]Note: This is optional as state is automatically saved during benchmarking.[/green]")
-
-        elif choice == "3":
-            console.print("[bold cyan]Updating .roomodes...[/bold cyan]")
+                console.print(f"[red]Error discovering/benchmarking models: {e}[/red]")
+        
+        elif choice == 2:  # Manual Save
             try:
-                update_roomodes()
-                console.print("[green].roomodes updated successfully[/green]")
-            except Exception as e:
-                console.print(f"[red]Error updating .roomodes:[/red] {e}")
-
-        elif choice == "4":
-            console.print("[bold cyan]Running full pipeline...[/bold cyan]")
-            try:
-                # Discover and save
-                console.print("[bold cyan]Step 1/3: Discovering models...[/bold cyan]")
+                console.print("[cyan]Discovering models for state saving...[/cyan]")
                 models = discover_lmstudio_models()
-                pretty_print_models(models)
-                save_modelstate(models, "Discovered models saved to .modelstate.json")
-                
-                # Select models
-                models = select_models(models)
-                
-                # Benchmark
-                console.print("[bold cyan]Step 2/3: Benchmarking selected models...[/bold cyan]")
-                benchmark_results = benchmark_lmstudio_models(models)
-                pretty_print_benchmarks(benchmark_results)
-                # Results already saved by benchmark function
-                
-                # Update roomodes
-                console.print("[bold cyan]Step 3/3: Updating RooCode modes...[/bold cyan]")
-                update_roomodes()
-                console.print("[green]Full pipeline completed successfully![/green]")
+                save_modelstate(models, "Model state manually saved")
             except Exception as e:
-                console.print(f"[red]Error running full pipeline:[/red] {e}")
+                console.print(f"[red]Error saving model state: {e}[/red]")
+        
+        elif choice == 3:  # Update Roomodes
+            try:
+                console.print("[cyan]Updating .roomodes file...[/cyan]")
+                success = update_roomodes()
+                if success:
+                    console.print("[green]Successfully updated .roomodes file![/green]")
+                else:
+                    console.print("[yellow]No changes made to .roomodes file.[/yellow]")
+            except Exception as e:
+                console.print(f"[red]Error updating .roomodes: {e}[/red]")
+        
+        elif choice == 4:  # Run Context Optimization Proxy
+            run_proxy_with_ui()
+        
+        elif choice == 5:  # Run All Steps
+            try:
+                # Step 1: Discover and benchmark
+                console.print("[cyan]Step 1: Discovering models...[/cyan]")
+                models = discover_lmstudio_models()
+                console.print(f"[green]Found {len(models)} models![/green]")
+                pretty_print_models(models)
+                
+                console.print("[cyan]Benchmarking models...[/cyan]")
+                results = benchmark_lmstudio_models(models)
+                console.print("[green]Benchmarking complete![/green]")
+                pretty_print_benchmarks(results)
+                
+                # Step 2: Update roomodes
+                console.print("[cyan]Step 2: Updating .roomodes file...[/cyan]")
+                success = update_roomodes()
+                if success:
+                    console.print("[green]Successfully updated .roomodes file![/green]")
+                else:
+                    console.print("[yellow]No changes made to .roomodes file.[/yellow]")
+                
+                console.print(Panel.fit(
+                    "[bold green]All steps completed successfully![/bold green]\n\n"
+                    "You can now run the Context Optimization Proxy (Option 4) to maximize context windows.",
+                    border_style="green"
+                ))
+            except Exception as e:
+                console.print(f"[red]Error running workflow: {e}[/red]")
+        
+        elif choice == 6:  # Exit
+            console.print("[cyan]Exiting...[/cyan]")
+            return 0
+        
+        else:
+            console.print("[yellow]Invalid option selected. Please try again.[/yellow]")
+        
+        console.print()
 
-        elif choice == "5":
-            console.print("[bold magenta]Goodbye![/bold magenta]")
-            sys.exit(0)
+def main():
+    """Main function that handles both CLI and interactive modes"""
+    parser = argparse.ArgumentParser(description="LM Studio Project Manager")
+    
+    # Create subparsers for different commands
+    subparsers = parser.add_subparsers(dest='command', help='Command to run')
+    
+    # Discover command
+    discover_parser = subparsers.add_parser('discover', help='Discover available LM Studio models')
+    
+    # Benchmark command
+    benchmark_parser = subparsers.add_parser('benchmark', help='Benchmark LM Studio models')
+    
+    # Update roomodes command
+    update_parser = subparsers.add_parser('update', help='Update .roomodes file with model benchmarks')
+    
+    # Context proxy command
+    proxy_parser = subparsers.add_parser('proxy', help='Run a context-optimizing proxy for LM Studio')
+    proxy_parser.add_argument('--port', type=int, default=1235, help='Port to run the proxy on (default: 1235)')
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    # If no command is specified, run the interactive menu
+    if len(sys.argv) == 1:
+        return main_menu()
+    
+    # Otherwise, run the specified command
+    if args.command == 'discover':
+        try:
+            models = discover_lmstudio_models()
+            pretty_print_models(models)
+        except Exception as e:
+            console.print(f"[red]Error discovering models: {e}[/red]")
+            return 1
+            
+    elif args.command == 'benchmark':
+        try:
+            models = discover_lmstudio_models()
+            console.print(f"Benchmarking {len(models)} models...")
+            results = benchmark_lmstudio_models(models)
+            pretty_print_benchmarks(results)
+        except Exception as e:
+            console.print(f"[red]Error benchmarking models: {e}[/red]")
+            return 1
+            
+    elif args.command == 'update':
+        try:
+            success = update_roomodes()
+            if success:
+                console.print("[green]Successfully updated .roomodes file![/green]")
+            else:
+                console.print("[yellow]No changes made to .roomodes file.[/yellow]")
+                return 1
+        except Exception as e:
+            console.print(f"[red]Error updating .roomodes: {e}[/red]")
+            return 1
+            
+    elif args.command == 'proxy':
+        try:
+            # Set the proxy port if specified
+            if hasattr(args, 'port'):
+                import lmstudio_context_proxy
+                lmstudio_context_proxy.PROXY_PORT = args.port
+            
+            console.print("[green]Starting LM Studio context optimization proxy...[/green]")
+            run_proxy_server()
+        except Exception as e:
+            console.print(f"[red]Error running proxy server: {e}[/red]")
+            return 1
+    
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

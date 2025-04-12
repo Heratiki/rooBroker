@@ -124,6 +124,110 @@ This means your RooCode modes will contain specific guidance on how to best prom
 - For benchmark failures with larger models, the system will automatically use longer timeouts
 - If you encounter "HTTPConnectionPool" errors, try running fewer models at once or increase available resources
 - For visual UI issues, make sure the Rich library is correctly installed (`pip install rich`)
+
+# LM Studio Context Optimizer for Roo Code
+
+This utility allows you to maximize context window usage when using LM Studio with Roo Code by providing a transparent proxy that automatically optimizes each request.
+
+## Problem Solved
+
+When Roo Code makes API calls to LM Studio, it doesn't automatically maximize the available context window for each model. This limits the effectiveness of models, especially for complex tasks that require large context.
+
+## Solution
+
+This project provides a transparent HTTP proxy that sits between Roo Code and LM Studio. The proxy:
+
+1. Runs on a different port (default: 1235)
+2. Intercepts all API calls to LM Studio
+3. Automatically adjusts the `max_tokens` parameter based on each model's actual context window size
+4. Forwards the optimized requests to LM Studio
+5. Returns responses back to Roo Code
+
+The best part is that you don't need to modify Roo Code at all - you simply point it to the proxy instead of directly to LM Studio.
+
+## Usage
+
+### 1. Start the Context Optimizer Proxy
+
+Run the following command to start the proxy:
+
+```bash
+python main.py proxy
+```
+
+By default, the proxy runs on port 1235. You can specify a different port:
+
+```bash
+python main.py proxy --port 8765
+```
+
+You should see output like:
+
+```
+Starting LM Studio context optimization proxy...
+Updated model context cache with X models
+LM Studio Context Optimizer Proxy running on port 1235
+Point Roo Code to use http://localhost:1235 instead of http://localhost:1234
+```
+
+### 2. Configure Roo Code to Use the Proxy
+
+In your Roo Code configuration:
+
+1. Open Roo Code settings in VS Code
+2. Find the LM Studio configuration section
+3. Change the API base URL from `http://localhost:1234` to `http://localhost:1235` (or your custom port)
+4. Save the settings
+
+### 3. Use Roo Code Normally
+
+Now Roo Code will send all requests through the proxy, which will automatically optimize the context window usage for each model. You don't need to change anything else in your workflow.
+
+## How It Works
+
+The proxy:
+
+1. Caches information about each model's maximum context window size
+2. Intercepts chat completion requests
+3. Calculates the optimal `max_tokens` parameter (typically reserving 25% of the context window for the response)
+4. Modifies the request to use these optimal settings
+5. Forwards the request to the actual LM Studio endpoint
+6. Returns the unmodified response back to Roo Code
+
+This ensures that each model is used to its maximum capacity without requiring any changes to Roo Code or LM Studio.
+
+## Additional Features
+
+### Discover Models
+
+List all available models in LM Studio along with their context window sizes:
+
+```bash
+python main.py discover
+```
+
+### Benchmark Models
+
+Run benchmark tests on all available models:
+
+```bash
+python main.py benchmark
+```
+
+### Update Room Modes
+
+Update the Roo Code `.roomodes` file with model information and benchmarks:
+
+```bash
+python main.py update
+```
+
+## Notes
+
+- Keep both LM Studio and the proxy running simultaneously
+- The proxy needs to be restarted if you change models in LM Studio
+- Configuration is cached for 5 minutes, so any model changes will be detected automatically after that time
+
 # Custom Modes in RooCode
 
 Roo Code allows you to create custom modes to tailor Roo's behavior to specific tasks or workflows. Custom modes can be either global (available across all projects) or project-specific (defined within a single project). Each mode—including custom ones—remembers the last model you used with it, automatically selecting that model when you switch to the mode. This lets you maintain different preferred models for different types of tasks without manual reconfiguration.
