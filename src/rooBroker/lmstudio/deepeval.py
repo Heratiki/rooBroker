@@ -7,9 +7,9 @@ from rich.progress import Progress, TextColumn, BarColumn, TimeElapsedColumn, Ti
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
-from deepeval.models.base_model import DeepEvalBaseLLM
-from deepeval.metrics import HallucinationMetric, AnswerRelevancyMetric
-from deepeval.benchmarks.big_bench_hard.big_bench_hard import BigBenchHard
+from deepeval.models.base_model import DeepEvalBaseLLM  # type: ignore
+from deepeval.metrics import HallucinationMetric, AnswerRelevancyMetric  # type: ignore
+from deepeval.benchmarks.big_bench_hard.big_bench_hard import BigBenchHard  # type: ignore
 
 # Define task categories and their display names
 TASK_CATEGORIES = {
@@ -48,11 +48,10 @@ class LMStudioLLM(DeepEvalBaseLLM):
         self.api_endpoint = api_endpoint
         self.timeout = timeout
 
-    def load_model(self):
+    def load_model(self) -> None:
         """Placeholder for the abstract method. LM Studio handles loading externally."""
-        # Since LM Studio manages loading, we just return the instance.
-        # Alternatively, could add a check here to see if the model is available via API.
-        return self
+        # LM Studio manages loading; nothing to return to satisfy DeepEvalBaseLLM signature.
+        return None
 
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate a response from the LM Studio model.
@@ -82,13 +81,21 @@ class LMStudioLLM(DeepEvalBaseLLM):
             print(f"Error generating response: {str(e)}")
             return ""
 
+    def get_model_name(self) -> str:
+        """Return the model ID for DeepEval."""
+        return self.model_id
+
+    async def a_generate(self, prompt: str, **kwargs: Any) -> str:
+        """Asynchronous wrapper required by DeepEvalBaseLLM"""
+        return self.generate(prompt, **kwargs)
+
 def benchmark_with_bigbench(
     model: Dict[str, Any],
     api_endpoint: str = "http://localhost:1234/v1/chat/completions",
     timeout: int = 30,
     num_samples: int = 20,  # Increased samples for better accuracy
     console: Optional[Console] = None  # Add console parameter
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     """Run BIG-BENCH-HARD benchmarks focusing on complex reasoning tasks."""
     model_id = model.get("id", "unknown")
     model_timeout = timeout  # Explicitly define model_timeout for DeepEval 2.7.1+ compatibility
@@ -152,7 +159,7 @@ def benchmark_with_bigbench(
         
         # Run the benchmark (this is a blocking call)
         console.print("[bold yellow]Executing benchmark.run() - please wait...[/bold yellow]")
-        results = benchmark.run()
+        results = benchmark.run()  # type: ignore
         end_time = time.time()
         
         # Signal completion

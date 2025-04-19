@@ -27,6 +27,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.mypy_cache/
 
 # Virtual Environments
 venv/

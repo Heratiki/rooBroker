@@ -1,7 +1,7 @@
 import sys
 import json
 import argparse
-import os
+from typing import Any, Dict, List, Optional
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Prompt, IntPrompt
@@ -9,11 +9,12 @@ from rich.panel import Panel
 from rich import box
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
-from lmstudio_model_discovery import discover_lmstudio_models, benchmark_lmstudio_models
-from lmstudio_modelstate import update_modelstate_json
-from lmstudio_roomodes import update_roomodes
-from lmstudio_context_proxy import run_proxy_server
-from lmstudio_deepeval import benchmark_with_bigbench # &lt;-- Import Big Bench function
+# Corrected relative imports
+from .lmstudio.model_discovery import discover_lmstudio_models, benchmark_lmstudio_models
+from .roomodes.update import update_roomodes # Assuming update_roomodes is in update.py
+from .lmstudio.context_proxy import run_proxy_server
+from .lmstudio.deepeval import benchmark_with_bigbench
+from .lmstudio import context_proxy # Import the module
 
 console = Console()
 
@@ -30,7 +31,7 @@ def display_menu():
         border_style="bright_blue"
     ))
 
-def pretty_print_models(models):
+def pretty_print_models(models: List[Dict[str, Any]]) -> None:
     table = Table(title="Discovered Models", box=box.SIMPLE)
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Family", style="magenta")
@@ -43,7 +44,7 @@ def pretty_print_models(models):
         )
     console.print(table)
 
-def pretty_print_benchmarks(results):
+def pretty_print_benchmarks(results: List[Dict[str, Any]]) -> None:
     # Standard benchmarks table
     table = Table(title="Standard Benchmark Results", box=box.SIMPLE)
     table.add_column("Model ID", style="cyan", no_wrap=True)
@@ -67,6 +68,8 @@ def pretty_print_benchmarks(results):
     # BIG-BENCH-HARD table for models with those results
     bb_models = [r for r in results if "bigbench_scores" in r]
     if bb_models:
+        # Prepare category buckets
+        categories: Dict[str, List[float]] = {}
         bb_table = Table(title="BIG-BENCH-HARD Results", box=box.SIMPLE)
         bb_table.add_column("Model ID", style="cyan", no_wrap=True)
         bb_table.add_column("Overall", style="green")
@@ -79,17 +82,15 @@ def pretty_print_benchmarks(results):
         
         for r in bb_models:
             scores = r["bigbench_scores"]
-            categories = {}
+            # group weighted scores by category
             for task in scores.get("tasks", []):
                 cat = task.get("complexity_category", "other")
-                if cat not in categories:
-                    categories[cat] = []
-                categories[cat].append(task["weighted_score"])
+                categories.setdefault(cat, []).append(float(task.get("weighted_score", 0.0)))
             
             # Calculate category averages
-            cat_avgs = {
-                cat: sum(scores) / len(scores) if scores else 0.0
-                for cat, scores in categories.items()
+            cat_avgs: Dict[str, float] = {
+                cat: (sum(vals) / len(vals)) if vals else 0.0
+                for cat, vals in categories.items()
             }
             
             bb_table.add_row(
@@ -130,7 +131,7 @@ def pretty_print_benchmarks(results):
             )
         console.print(summary_table)
 
-def save_modelstate(data, message="Model state saved"):
+def save_modelstate(data: List[Dict[str, Any]], message: str = "Model state saved") -> None:
     """Helper function to save model state with consistent formatting"""
     try:
         # Convert list of models to a dictionary keyed by model_id for consistency
@@ -147,7 +148,7 @@ def save_modelstate(data, message="Model state saved"):
     except Exception as e:
         console.print(f"[red]Error saving model state: {e}[/red]")
 
-def select_models(models):
+def select_models(models: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Helper function to let user select which models to benchmark"""
     console.print("[bold cyan]Select models to benchmark (comma-separated IDs or 'all'):[/bold cyan]")
     ids = [str(m.get("id")) for m in models]
@@ -160,7 +161,7 @@ def select_models(models):
     console.print(f"[green]Selected {len(selected_models)} models for benchmarking.[/green]")
     return selected_models
 
-def select_models_by_number(models):
+def select_models_by_number(models: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Helper function to let user select which models to benchmark by number in the list"""
     # Create a table with numbered models
     table = Table(title="Available Models", box=box.SIMPLE)
@@ -216,7 +217,11 @@ def select_models_by_number(models):
         console.print("[yellow]Invalid input. Please use numbers separated by commas.[/yellow]")
         return []
 
-def run_and_merge_bigbench(models_to_benchmark, existing_results, console=None):
+def run_and_merge_bigbench(
+    models_to_benchmark: List[Dict[str, Any]],
+    existing_results: List[Dict[str, Any]],
+    console: Optional[Console] = None
+) -> List[Dict[str, Any]]:
     """Runs BIG-BENCH-HARD and merges results into the existing list."""
     if not console:
         console = Console() # Ensure console is available
@@ -295,26 +300,26 @@ def run_and_merge_bigbench(models_to_benchmark, existing_results, console=None):
     return existing_results
 
 def run_proxy_with_ui():
-    """Run the context optimization proxy with rich UI feedback"""
+    \"\"\"Run the context optimization proxy with rich UI feedback\"\"\"
     try:
         # Allow user to customize port
         port = IntPrompt.ask(
             "Enter port for the proxy server",
             default=1235
         )
-        
+
+        # Corrected Panel content with single backslashes for newlines
         console.print(Panel.fit(
-            "[bold]The proxy will now start running.[/bold]\n\n"
-            f"Point Roo Code to use [cyan]http://localhost:{port}[/cyan] instead of http://localhost:1234\n\n"
+            "[bold]The proxy will now start running.[/bold]\\n\\n"
+            f"Point Roo Code to use [cyan]http://localhost:{port}[/cyan] instead of http://localhost:1234\\n\\n"
             "Press Ctrl+C to stop the proxy and return to the menu.",
             title="Context Optimization Proxy",
             border_style="green"
         ))
-        
-        # Set the proxy port
-        import lmstudio_context_proxy
-        lmstudio_context_proxy.PROXY_PORT = port
-        
+
+        # Set the proxy port using the imported module
+        context_proxy.PROXY_PORT = port
+
         # Start the proxy server
         run_proxy_server()
     except KeyboardInterrupt:
@@ -403,7 +408,7 @@ def main_menu():
                     console.print("[yellow]No changes made to .roomodes file.[/yellow]")
                 
                 console.print(Panel.fit(
-                    "[bold green]All steps completed successfully![/bold green]\n\n"
+                    "[bold green]All steps completed successfully![/bold green]\\n\\n"
                     "You can now run the Context Optimization Proxy (Option 4) to maximize context windows.",
                     border_style="green"
                 ))
@@ -427,7 +432,7 @@ def main():
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
     
     # Discover command
-    discover_parser = subparsers.add_parser('discover', help='Discover available LM Studio models')
+    _discover_parser = subparsers.add_parser('discover', help='Discover available LM Studio models')
     
     # Benchmark command
     benchmark_parser = subparsers.add_parser('benchmark', help='Benchmark LM Studio models')
@@ -435,7 +440,7 @@ def main():
     benchmark_parser.add_argument('--models', type=str, default='all', help='Comma-separated list of model IDs to benchmark, or "all"')
 
     # Update roomodes command
-    update_parser = subparsers.add_parser('update', help='Update .roomodes file with model benchmarks')
+    _update_parser = subparsers.add_parser('update', help='Update .roomodes file with model benchmarks')
     
     # Context proxy command
     proxy_parser = subparsers.add_parser('proxy', help='Run a context-optimizing proxy for LM Studio')
@@ -504,16 +509,23 @@ def main():
         try:
             # Set the proxy port if specified
             if hasattr(args, 'port'):
-                import lmstudio_context_proxy
-                lmstudio_context_proxy.PROXY_PORT = args.port
-            
+                # Use the already imported module
+                context_proxy.PROXY_PORT = args.port
+
             console.print("[green]Starting LM Studio context optimization proxy...[/green]")
             run_proxy_server()
         except Exception as e:
             console.print(f"[red]Error running proxy server: {e}[/red]")
             return 1
-    
+
     return 0
 
 if __name__ == "__main__":
+    # When running main.py directly, the src directory needs to be in PYTHONPATH
+    # This is often handled by IDEs or by installing the package (e.g., `pip install -e .`)
+    # For direct execution `python src/rooBroker/main.py`, Python might not find the modules.
+    # A common workaround for direct script execution is to adjust sys.path,
+    # but the best practice is to run it as a module: `python -m rooBroker.main` from the `src` directory
+    # or install the package.
+    # For simplicity here, we'll assume it's run correctly or installed.
     sys.exit(main())

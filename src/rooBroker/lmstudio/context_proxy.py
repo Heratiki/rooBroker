@@ -2,9 +2,38 @@ import http.server
 import socketserver
 import json
 import requests
-from urllib.parse import urlparse, parse_qs
-import threading
+from urllib.parse import urlparse  # keep only what’s used
+from typing import Any, Dict, Optional
 import time
+
+class SomeCache:
+    """A simple cache class to demonstrate cache flushing."""
+
+    def __init__(self):
+        self._cache: Dict[Any, Any] = {}
+
+    def get(self, key: Any) -> Any:
+        """Get a value from the cache by key."""
+        return self._cache.get(key)
+
+    def set(self, key: Any, value: Any) -> None:
+        """Set a value in the cache by key."""
+        self._cache[key] = value
+
+    def flush_cache(self) -> None:
+        """Clear the given cache mapping."""
+        self._cache.clear()
+
+class ProxyContext:
+    """A class to manage proxy context, such as context windows for models."""
+
+    def __init__(self, x: Any) -> None:
+        self._context_window: Optional[int] = None
+
+    def log(self, format: str, *args: Any) -> None:
+        """Log a formatted message."""
+        message = format % args
+        print(message)
 
 # Configuration
 LM_STUDIO_HOST = "localhost"
@@ -14,8 +43,8 @@ LM_STUDIO_MODELS_ENDPOINT = f"http://{LM_STUDIO_HOST}:{LM_STUDIO_PORT}/v1/models
 LM_STUDIO_CHAT_ENDPOINT = f"http://{LM_STUDIO_HOST}:{LM_STUDIO_PORT}/v1/chat/completions"
 
 # Cache for model context windows
-model_context_cache = {}
-last_cache_update = 0
+model_context_cache: Dict[str, int] = {}
+last_cache_update: float = 0.0
 CACHE_TTL = 300  # 5 minutes
 
 def update_model_context_cache():
@@ -129,7 +158,7 @@ class LMStudioProxyHandler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, f"Error forwarding request: {str(e)}")
     
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: Any) -> None:
         """Override logging to provide more useful information"""
         print(f"{self.client_address[0]} - {args[0].split()[0]} {args[0].split()[1]}")
 
