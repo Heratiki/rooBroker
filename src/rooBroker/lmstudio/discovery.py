@@ -4,7 +4,7 @@ Discovery of LM Studio models.
 from typing import List, Dict, Any
 import requests
 
-from lmstudio_config import LM_STUDIO_MODELS_ENDPOINT
+from .config import LM_STUDIO_MODELS_ENDPOINT
 
 
 def discover_lmstudio_models(

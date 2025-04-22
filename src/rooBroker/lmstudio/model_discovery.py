@@ -3,9 +3,9 @@ Entrypoint for LM Studio model discovery and benchmarking, delegating to modular
 """
 from typing import Any, List, Dict
 from typing import cast
-from lmstudio_discovery import discover_lmstudio_models
-from lmstudio_benchmark import benchmark_lmstudio_models
-from lmstudio_config import console, rich_available  # type: ignore
+from .discovery import discover_lmstudio_models
+from .benchmark import benchmark_lmstudio_models
+from .config import console, rich_available  # type: ignore
 
 
 def main() -> None:

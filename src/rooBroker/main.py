@@ -1,6 +1,10 @@
-import sys
-import json
-import argparse
+import sys, json, argparse
+import os  # required for inserting src folder into path
+
+# Allow direct script execution by adding src folder to sys.path
+if __name__ == "__main__" and __package__ is None:
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from typing import Any, Dict, List, Optional
 from rich.console import Console
 from rich.table import Table
@@ -10,11 +14,12 @@ from rich import box
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 # Corrected relative imports
-from .lmstudio.model_discovery import discover_lmstudio_models, benchmark_lmstudio_models
-from .roomodes.update import update_roomodes # Assuming update_roomodes is in update.py
-from .lmstudio.context_proxy import run_proxy_server
-from .lmstudio.deepeval import benchmark_with_bigbench
-from .lmstudio import context_proxy # Import the module
+from rooBroker.lmstudio.discovery import discover_lmstudio_models
+from rooBroker.lmstudio.benchmark import benchmark_lmstudio_models
+from rooBroker.roomodes.update import update_roomodes
+from rooBroker.lmstudio.context_proxy import run_proxy_server
+from rooBroker.lmstudio.deepeval import benchmark_with_bigbench
+from rooBroker.lmstudio import context_proxy
 
 console = Console()
 
@@ -264,10 +269,11 @@ def run_and_merge_bigbench(
             try:
                 # Run the benchmark with the enhanced UI in lmstudio_deepeval.py
                 console.print(f"\n[bold cyan]═════ BIG-BENCH-HARD: {model_id} ═════[/bold cyan]")
+                # Use a separate Console instance for BIG-BENCH-HARD to avoid nested live display issues
                 bb_result_data = benchmark_with_bigbench(
-                    model, 
-                    api_endpoint="http://localhost:1234/v1/chat/completions", 
-                    console=console
+                    model,
+                    api_endpoint="http://localhost:1234/v1/chat/completions",
+                    console=Console()
                 )
 
                 # Handle results
@@ -300,7 +306,7 @@ def run_and_merge_bigbench(
     return existing_results
 
 def run_proxy_with_ui():
-    \"\"\"Run the context optimization proxy with rich UI feedback\"\"\"
+    """Run the context optimization proxy with rich UI feedback"""
     try:
         # Allow user to customize port
         port = IntPrompt.ask(

@@ -2,7 +2,7 @@
 Configuration and shared constants for LM Studio integrations.
 Includes API endpoints and rich console detection.
 """
-from typing import Optional
+from typing import Optional, Any
 import sys
 
 # Rich console and components detection
@@ -16,24 +16,24 @@ try:
     from rich.text import Text
     from rich import box
 
-    console: Console = Console()
+    console = Console()
     rich_available: bool = True
 except ImportError:
-    Console = None  # type: ignore
-    Prompt = None  # type: ignore
-    Progress = None  # type: ignore
-    TextColumn = None  # type: ignore
-    BarColumn = None  # type: ignore
-    TimeElapsedColumn = None  # type: ignore
-    TimeRemainingColumn = None  # type: ignore
-    SpinnerColumn = None  # type: ignore
-    Live = None  # type: ignore
-    Layout = None  # type: ignore
-    Table = None  # type: ignore
-    Text = None  # type: ignore
-    box = None  # type: ignore
-    console = None  # type: ignore
-    rich_available = False
+    Console: Optional[Any] = None
+    Prompt: Optional[Any] = None
+    Progress: Optional[Any] = None
+    TextColumn: Optional[Any] = None
+    BarColumn: Optional[Any] = None
+    TimeElapsedColumn: Optional[Any] = None
+    TimeRemainingColumn: Optional[Any] = None
+    SpinnerColumn: Optional[Any] = None
+    Live: Optional[Any] = None
+    Layout: Optional[Any] = None
+    Table: Optional[Any] = None
+    Text: Optional[Any] = None
+    box: Optional[Any] = None
+    console: Optional[Any] = None
+    rich_available: bool = False
 
 # API endpoints
 LM_STUDIO_MODELS_ENDPOINT: str = "http://localhost:1234/v1/models"

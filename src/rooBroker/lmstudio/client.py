@@ -3,8 +3,8 @@ API client for LM Studio chat calls with context optimization.
 """
 from typing import List, Dict, Any
 import requests
-from lmstudio_config import LM_STUDIO_MODELS_ENDPOINT, CHAT_COMPLETIONS_ENDPOINT
-from lmstudio_timeout import get_model_timeout
+from .config import LM_STUDIO_MODELS_ENDPOINT, CHAT_COMPLETIONS_ENDPOINT
+from .timeout import get_model_timeout
 
 
 def call_lmstudio_with_max_context(

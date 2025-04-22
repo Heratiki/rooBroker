@@ -4,7 +4,7 @@ Analysis of model responses and prompt improvement.
 from typing import Dict, Any
 import requests
 
-from lmstudio_config import CHAT_COMPLETIONS_ENDPOINT
+from .config import CHAT_COMPLETIONS_ENDPOINT
 
 
 def analyze_response(

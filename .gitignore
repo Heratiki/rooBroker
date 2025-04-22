@@ -5,6 +5,8 @@ roo-code-settings.json
 .modelstate.json
 .roomodes
 LM_STUDIO_ISSUES.md
+TestMode.txt
+.roo/
 
 # Python specific
 __pycache__/
@@ -52,3 +54,9 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 rooBroker.code-workspace
+memory-bank/activeContext.md
+memory-bank/decisionLog.md
+memory-bank/productContext.md
+memory-bank/progress.md
+memory-bank/systemPatterns.md
+src/rooBroker/lmstudio/benchmark.py

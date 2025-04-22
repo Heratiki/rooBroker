@@ -2,7 +2,7 @@
 
 from typing import Any, Callable, TypedDict, Union, Literal
 
-from types.benchmarking import BigBenchScores
+from .benchmarking import BigBenchScores
 
 class BenchmarkTest(TypedDict):
     """Definition for a single benchmark test."""
