@@ -1,5 +1,5 @@
 """
-Benchmarking LM Studio models with optional UI and adaptive prompting.
+Benchmarking LM Studio models with Rich UI and adaptive prompting.
 """
 from typing import List, Dict, Any, cast
 from roo_types.models import ModelState
@@ -10,11 +10,11 @@ import sys
 
 # Local relative imports to resolve missing module errors
 from .client import call_lmstudio_with_max_context
-from .analysis import analyze_response, improve_prompt
+from .analysis import analyze_response, improve_prompt # TODO: Where can these be implemented effectively and efficiently? Is it needed?
 from .timeout import get_model_timeout
 from .modelstate import update_modelstate_json
 from .deepeval import benchmark_with_bigbench
-from .config import console, rich_available, Prompt, Progress, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, Live, Layout, Table, Text, box, CHAT_COMPLETIONS_ENDPOINT
+from .config import console, rich_available, Prompt, Progress, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, Live, Layout, Table, Text, box, CHAT_COMPLETIONS_ENDPOINT # TODO: Where can the unused imports be used effectively and efficiently? Is it needed?
 from rich.console import Console  # import class for fallback
 from .promptwizard import PromptWizard
 
@@ -54,6 +54,9 @@ def benchmark_lmstudio_models(
     run_bigbench: bool = True
 ) -> List[Dict[str, Any]]:
     """Run defined benchmarks on each LM Studio model."""
+    # Create local console if global one isn't available
+    local_console = console if console is not None else Console()
+    
     benchmarks: List[Dict[str, Any]] = [
         {"name": "simple", "prompt": "What is the result of 7 * 8?", "system_prompt": "You are a precise calculator. Provide only the numeric result.", "expected": "56", "temperature": 0.1},
         {"name": "moderate", "prompt": "Write a Python function that returns the square of a number.", "system_prompt": "You are a Python programmer. Write clean, efficient code.", "expected": "def square(n):\n    return n * n", "temperature": 0.2},
@@ -74,13 +77,12 @@ def benchmark_lmstudio_models(
     table.add_column("Status", style="white")
     table.add_column("Score", style="bold")
     table.add_column("PromptWizard Activity", style="dim")
-    layout = Layout()
-    layout.split(
-        Layout(header, name="header", size=3),
-        Layout(table, name="body")
-    )
-    live = Live(layout, console=console, refresh_per_second=2)
-    live.start()
+    
+    # Manual refresh with local console
+    local_console.clear()
+    local_console.print(header)
+    local_console.print(table)
+
     for idx, model in enumerate(models):
         model_id: str = model["id"]
         timeout_sec = get_model_timeout(model)
@@ -94,8 +96,7 @@ def benchmark_lmstudio_models(
 
         for bench in benchmarks:
             # Create a PromptWizard for more structured prompt refinement
-            wizard_console = console if console else Console()
-            wizard = PromptWizard(bench['name'], model_id, wizard_console)
+            wizard = PromptWizard(bench['name'], model_id, local_console)
             # Iteratively refine the prompt zero‐shot before running
             original_prompt = bench['prompt']
             bench['prompt'] = wizard.iterative_zero_shot_refine(
@@ -106,26 +107,21 @@ def benchmark_lmstudio_models(
             )
             # Advance progress and update description per benchmark
             # Inform user about request phase
-            if console:
-                console.print(f"[blue]→ Sending request for '{bench['name']}' on model {model_id}[/blue]")
+            local_console.print(f"[blue]→ Sending request for '{bench['name']}' on model {model_id}[/blue]")
             best_score = 0.0; best_resp = ''
             prompt = bench["prompt"]
             attempt = 0  # Initialize attempt for type safety
             for attempt in range(max_retries+1):
-                if console:
-                    console.print(f"[blue]Attempt {attempt+1}/{max_retries+1} for '{bench['name']}'[/blue]")
+                local_console.print(f"[blue]Attempt {attempt+1}/{max_retries+1} for '{bench['name']}'[/blue]")
                 auth_resp = call_lmstudio_with_max_context(model_id, [{"role":"system","content":bench["system_prompt"]},{"role":"user","content":prompt}], timeout=timeout_sec, temperature=bench["temperature"], max_tokens=500)
-                if console:
-                    console.print(f"[blue]← Received response for '{bench['name']}' (model {model_id})[/blue]")
+                local_console.print(f"[blue]← Received response for '{bench['name']}' (model {model_id})[/blue]")
                 text = auth_resp.get("choices", [])[0].get("message",{}).get("content","").strip()
                 score = bench.get("score_fn", lambda r: 1.0 if bench["expected"] in r else 0.0)(text) if bench.get("score_fn") else (1.0 if bench["expected"] in text else 0.0)
-                if console:
-                    console.print(f"[green]Scored {score:.2f} for '{bench['name']}'[/green]")
+                local_console.print(f"[green]Scored {score:.2f} for '{bench['name']}'[/green]")
                 if score > best_score:
                     best_score, best_resp = score, text
                 if score < 1.0 and attempt < max_retries:
-                    if console:
-                        console.print(f"[yellow]Improving prompt for '{bench['name']}' based on response...[/yellow]")
+                    local_console.print(f"[yellow]Improving prompt for '{bench['name']}' based on response...[/yellow]")
                     # Use PromptWizard for critique and synthesis phases
                     prompt = wizard.refine(prompt, text, bench['expected'], analyzer, improver)
                     prompt_impr[bench['name']] = {'analysis': wizard.history[-1]['critique']['analysis'], 'improved_prompt': wizard.history[-1]['new_prompt']}
@@ -140,8 +136,11 @@ def benchmark_lmstudio_models(
                 prompt_activity = f"Analysis: {prompt_impr[bench['name']]['analysis']} | New Prompt: {prompt_impr[bench['name']]['improved_prompt']}"
             table.add_row(model_id, bench["name"], f"{final_attempt}/{max_retries+1}", "Completed", f"{final_score:.2f}", prompt_activity)
             completed_tasks += 1
-            layout["header"].update(Text(f"Progress: {completed_tasks}/{total_tasks} tasks", style="bold magenta"))
-            live.refresh()
+            # Manual console refresh with local console
+            header = Text(f"Progress: {completed_tasks}/{total_tasks} tasks", style="bold magenta")
+            local_console.clear()
+            local_console.print(header)
+            local_console.print(table)
             scores[bench["name"]] = best_score
             model_result[f"score_{bench['name']}"] = best_score
 
