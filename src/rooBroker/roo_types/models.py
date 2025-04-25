@@ -49,3 +49,12 @@ class ModelConfiguration(TypedDict):
     priority: Priority
     api_config: ApiConfig
     file_restrictions: FileRestrictions
+
+class OllamaModelDetails(TypedDict, total=False):
+    """Detailed model information for Ollama models."""
+    id: str
+    name: str
+    context_window: int
+    version: str
+    status: str
+    additional_info: dict[str, any]

@@ -1,5 +1,14 @@
 """
 Benchmarking LM Studio models with Rich UI and adaptive prompting.
+
+DEPRECATED: This module is deprecated and will be removed in a future version.
+The standard benchmarking functionality has been moved to rooBroker.core.benchmarking.
+Use that module instead, which provides a provider-agnostic implementation using
+the ModelProviderClient interface.
+
+This module is kept temporarily for backward compatibility during the refactoring
+process and will be removed once all dependencies have been updated to use the
+new core implementation.
 """
 from typing import List, Dict, Any, cast, Optional
 from roo_types.models import ModelState

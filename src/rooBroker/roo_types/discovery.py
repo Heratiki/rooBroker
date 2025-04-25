@@ -42,3 +42,14 @@ class ModelInfo(TypedDict, total=False):
     family: str
     context_window: int
     created: int
+
+
+class OllamaModelInfo(TypedDict, total=False):
+    """Information about an Ollama model for discovery."""
+    id: str
+    name: str
+    context_window: int
+    version: str
+    created: int
+
+DiscoveredModel = Union[ModelInfo, OllamaModelInfo]

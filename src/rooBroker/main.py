@@ -7,134 +7,22 @@ if __name__ == "__main__" and __package__ is None:
 
 from typing import Any, Dict, List, Optional
 from rich.console import Console
-from rich.table import Table
-from rich.prompt import Prompt, IntPrompt
+from rich.prompt import IntPrompt
 from rich.panel import Panel
-from rich import box
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 # Corrected relative imports
-from rooBroker.lmstudio.discovery import discover_lmstudio_models
-from rooBroker.lmstudio.benchmark import benchmark_lmstudio_models
+from rooBroker.core.discovery import discover_all_models
+from rooBroker.core.benchmarking import run_standard_benchmarks
+from rooBroker.interfaces.lmstudio.client import LMStudioClient
+from rooBroker.roo_types.discovery import DiscoveredModel
 from rooBroker.roomodes.update import update_roomodes
 from rooBroker.lmstudio.context_proxy import run_proxy_server
 from rooBroker.lmstudio.deepeval import benchmark_with_bigbench
-from rooBroker.lmstudio import context_proxy
+from rooBroker.ui.common_formatters import pretty_print_models, pretty_print_benchmarks
+from rooBroker.ui.interactive_utils import display_menu, select_models, select_models_by_number, run_proxy_with_ui
 
 console = Console()
-
-def display_menu():
-    console.print(Panel.fit(
-        "[bold cyan]LM Studio Project Manager[/bold cyan]\n"
-        "[green]1.[/green] Discover & Benchmark Models\n"
-        "[green]2.[/green] Manual Save Model State (Optional)\n"
-        "[green]3.[/green] Update Roomodes\n"
-        "[green]4.[/green] Run Context Optimization Proxy\n"
-        "[green]5.[/green] Run All Steps\n"
-        "[green]6.[/green] Exit",
-        title="Main Menu",
-        border_style="bright_blue"
-    ))
-
-def pretty_print_models(models: List[Dict[str, Any]]) -> None:
-    table = Table(title="Discovered Models", box=box.SIMPLE)
-    table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Family", style="magenta")
-    table.add_column("Context Window", style="green")
-    for m in models:
-        table.add_row(
-            str(m.get("id", "")),
-            str(m.get("family", "")),
-            str(m.get("context_window", ""))
-        )
-    console.print(table)
-
-def pretty_print_benchmarks(results: List[Dict[str, Any]]) -> None:
-    # Standard benchmarks table
-    table = Table(title="Standard Benchmark Results", box=box.SIMPLE)
-    table.add_column("Model ID", style="cyan", no_wrap=True)
-    table.add_column("Simple", style="green")
-    table.add_column("Moderate", style="yellow")
-    table.add_column("Complex", style="red")
-    table.add_column("Context", style="blue")
-    table.add_column("Failures", style="magenta")
-    
-    for r in results:
-        table.add_row(
-            r.get("model_id", ""),
-            f"{r.get('score_simple', 0):.2f}",
-            f"{r.get('score_moderate', 0):.2f}",
-            f"{r.get('score_complex', 0):.2f}",
-            f"{r.get('score_context_window', 0):.2f}",
-            str(r.get("failures", 0))
-        )
-    console.print(table)
-    
-    # BIG-BENCH-HARD table for models with those results
-    bb_models = [r for r in results if "bigbench_scores" in r]
-    if bb_models:
-        # Prepare category buckets
-        categories: Dict[str, List[float]] = {}
-        bb_table = Table(title="BIG-BENCH-HARD Results", box=box.SIMPLE)
-        bb_table.add_column("Model ID", style="cyan", no_wrap=True)
-        bb_table.add_column("Overall", style="green")
-        bb_table.add_column("Logical", style="yellow")
-        bb_table.add_column("Algorithmic", style="red")
-        bb_table.add_column("Abstract", style="blue")
-        bb_table.add_column("Mathematics", style="magenta")
-        bb_table.add_column("Code Gen", style="cyan")
-        bb_table.add_column("Problem Solving", style="green")
-        
-        for r in bb_models:
-            scores = r["bigbench_scores"]
-            # group weighted scores by category
-            for task in scores.get("tasks", []):
-                cat = task.get("complexity_category", "other")
-                categories.setdefault(cat, []).append(float(task.get("weighted_score", 0.0)))
-            
-            # Calculate category averages
-            cat_avgs: Dict[str, float] = {
-                cat: (sum(vals) / len(vals)) if vals else 0.0
-                for cat, vals in categories.items()
-            }
-            
-            bb_table.add_row(
-                r.get("model_id", ""),
-                f"{scores.get('overall', 0):.2f}",
-                f"{cat_avgs.get('logical_reasoning', 0):.2f}",
-                f"{cat_avgs.get('algorithmic_thinking', 0):.2f}",
-                f"{cat_avgs.get('abstract_reasoning', 0):.2f}",
-                f"{cat_avgs.get('mathematics', 0):.2f}",
-                f"{cat_avgs.get('code_generation', 0):.2f}",
-                f"{cat_avgs.get('problem_solving', 0):.2f}"
-            )
-        console.print(bb_table)
-        
-        # Add a weighted averages summary table
-        summary_table = Table(title="Overall Performance Summary", box=box.SIMPLE)
-        summary_table.add_column("Model ID", style="cyan", no_wrap=True)
-        summary_table.add_column("Standard Avg", style="yellow")
-        summary_table.add_column("BIG-BENCH Avg", style="green")
-        summary_table.add_column("Overall (60/40)", style="red")
-        
-        for r in bb_models:
-            standard_avg = (
-                r.get('score_simple', 0.0) +
-                r.get('score_moderate', 0.0) +
-                r.get('score_complex', 0.0) +
-                r.get('score_context_window', 0.0)
-            ) / 4
-            
-            bb_score = r["bigbench_scores"].get('overall', 0.0)
-            overall = standard_avg * 0.4 + bb_score * 0.6
-            
-            summary_table.add_row(
-                r.get("model_id", ""),
-                f"{standard_avg:.2f}",
-                f"{bb_score:.2f}",
-                f"{overall:.2f}"
-            )
-        console.print(summary_table)
 
 def save_modelstate(data: List[Dict[str, Any]], message: str = "Model state saved") -> None:
     """Helper function to save model state with consistent formatting"""
@@ -153,74 +41,6 @@ def save_modelstate(data: List[Dict[str, Any]], message: str = "Model state save
     except Exception as e:
         console.print(f"[red]Error saving model state: {e}[/red]")
 
-def select_models(models: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Helper function to let user select which models to benchmark"""
-    console.print("[bold cyan]Select models to benchmark (comma-separated IDs or 'all'):[/bold cyan]")
-    ids = [str(m.get("id")) for m in models]
-    console.print(f"Available model IDs: {', '.join(ids)}")
-    selection = Prompt.ask("Enter IDs", default="all")
-    if selection.strip().lower() == "all":
-        return models
-    selected_ids = [s.strip() for s in selection.split(",")]
-    selected_models = [m for m in models if str(m.get("id")) in selected_ids]
-    console.print(f"[green]Selected {len(selected_models)} models for benchmarking.[/green]")
-    return selected_models
-
-def select_models_by_number(models: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Helper function to let user select which models to benchmark by number in the list"""
-    # Create a table with numbered models
-    table = Table(title="Available Models", box=box.SIMPLE)
-    table.add_column("#", style="yellow", no_wrap=True)
-    table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Family", style="magenta")
-    table.add_column("Context Window", style="green")
-    
-    # Add rows with index numbers
-    for i, m in enumerate(models, 1):
-        table.add_row(
-            str(i),
-            str(m.get("id", "")),
-            str(m.get("family", "")),
-            str(m.get("context_window", ""))
-        )
-    
-    console.print(table)
-    
-    # Prompt for selection
-    console.print("[bold cyan]Select models to benchmark:[/bold cyan]")
-    console.print("Enter model numbers (comma-separated), 'all' for all models, or '0' to cancel")
-    selection = Prompt.ask("Your selection", default="all")
-    
-    # Process selection
-    if selection.strip().lower() == "all":
-        console.print(f"[green]Selected all {len(models)} models for benchmarking.[/green]")
-        return models
-    
-    if selection.strip() == "0":
-        console.print("[yellow]Benchmarking canceled.[/yellow]")
-        return []
-    
-    try:
-        # Parse comma-separated numbers
-        selected_indices = [int(idx.strip()) for idx in selection.split(",")]
-        
-        # Check for valid indices
-        valid_indices = [idx for idx in selected_indices if 1 <= idx <= len(models)]
-        if not valid_indices:
-            console.print("[yellow]No valid model numbers selected.[/yellow]")
-            return []
-        
-        # Convert indices to actual models (adjusting for 1-based indexing)
-        selected_models = [models[idx-1] for idx in valid_indices]
-        
-        # Show selection summary
-        selected_ids = [m.get("id", "") for m in selected_models]
-        console.print(f"[green]Selected {len(selected_models)} models: {', '.join(selected_ids)}[/green]")
-        return selected_models
-        
-    except ValueError:
-        console.print("[yellow]Invalid input. Please use numbers separated by commas.[/yellow]")
-        return []
 
 def run_and_merge_bigbench(
     models_to_benchmark: List[Dict[str, Any]],
@@ -305,33 +125,6 @@ def run_and_merge_bigbench(
     # The existing_results list has been modified in-place through the map
     return existing_results
 
-def run_proxy_with_ui():
-    """Run the context optimization proxy with rich UI feedback"""
-    try:
-        # Allow user to customize port
-        port = IntPrompt.ask(
-            "Enter port for the proxy server",
-            default=1235
-        )
-
-        # Corrected Panel content with single backslashes for newlines
-        console.print(Panel.fit(
-            "[bold]The proxy will now start running.[/bold]\\n\\n"
-            f"Point Roo Code to use [cyan]http://localhost:{port}[/cyan] instead of http://localhost:1234\\n\\n"
-            "Press Ctrl+C to stop the proxy and return to the menu.",
-            title="Context Optimization Proxy",
-            border_style="green"
-        ))
-
-        # Set the proxy port using the imported module
-        context_proxy.PROXY_PORT = port
-
-        # Start the proxy server
-        run_proxy_server()
-    except KeyboardInterrupt:
-        console.print("[yellow]Proxy server stopped by user.[/yellow]")
-    except Exception as e:
-        console.print(f"[red]Error running proxy server: {e}[/red]")
 
 def main_menu():
     """Show the main menu and handle user input"""
@@ -342,7 +135,7 @@ def main_menu():
         if choice == 1:  # Discover & Benchmark
             try:
                 console.print("[cyan]Discovering models...[/cyan]")
-                models = discover_lmstudio_models()
+                models = discover_all_models()
                 console.print(f"[green]Found {len(models)} models![/green]")
                 
                 # Show models with numbers and allow direct selection
@@ -352,8 +145,9 @@ def main_menu():
                     continue # Go back to menu
 
                 console.print("[cyan]Running standard benchmarks for selected models...[/cyan]")
-                # Run standard benchmarks first
-                results = benchmark_lmstudio_models(selected_models)
+                # Initialize the LMStudio client and run standard benchmarks
+                lm_client = LMStudioClient()
+                results = run_standard_benchmarks(lm_client, selected_models)
                 console.print("[green]Standard benchmarking complete![/green]")
                 pretty_print_benchmarks(results) # Show standard results
 
@@ -371,7 +165,7 @@ def main_menu():
         elif choice == 2:  # Manual Save
             try:
                 console.print("[cyan]Discovering models for state saving...[/cyan]")
-                models = discover_lmstudio_models()
+                models = discover_all_models()
                 save_modelstate(models, "Model state manually saved")
             except Exception as e:
                 console.print(f"[red]Error saving model state: {e}[/red]")
@@ -394,13 +188,14 @@ def main_menu():
             try:
                 # Step 1: Discover and benchmark
                 console.print("[cyan]Step 1: Discovering models...[/cyan]")
-                models = discover_lmstudio_models()
+                models = discover_all_models()
                 console.print(f"[green]Found {len(models)} models![/green]")
                 pretty_print_models(models)
                 
                 console.print("[cyan]Benchmarking all models (standard)...[/cyan]")
-                # Run standard benchmarks only for "Run All Steps"
-                results = benchmark_lmstudio_models(models)
+                # Initialize the LMStudio client and run standard benchmarks
+                lm_client = LMStudioClient()
+                results = run_standard_benchmarks(lm_client, models)
                 console.print("[green]Standard benchmarking complete![/green]")
                 pretty_print_benchmarks(results)
                 # BBH is not run automatically in this mode
@@ -462,7 +257,7 @@ def main():
     # Otherwise, run the specified command
     if args.command == 'discover':
         try:
-            models = discover_lmstudio_models()
+            models = discover_all_models()
             pretty_print_models(models)
         except Exception as e:
             console.print(f"[red]Error discovering models: {e}[/red]")
@@ -470,7 +265,7 @@ def main():
             
     elif args.command == 'benchmark':
         try:
-            all_models = discover_lmstudio_models()
+            all_models = discover_all_models()
             if args.models.lower() == 'all':
                 models_to_benchmark = all_models
             else:
@@ -482,8 +277,9 @@ def main():
                  return 1
 
             console.print(f"Running standard benchmarks for {len(models_to_benchmark)} models...")
-            # Run standard benchmarks first
-            results = benchmark_lmstudio_models(models_to_benchmark)
+            # Initialize the LMStudio client and run standard benchmarks
+            lm_client = LMStudioClient()
+            results = run_standard_benchmarks(lm_client, models_to_benchmark)
             console.print("[green]Standard benchmarking complete.[/green]")
 
             # Run Big Bench Hard if requested via flag

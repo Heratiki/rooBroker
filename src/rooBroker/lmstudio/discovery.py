@@ -7,7 +7,7 @@ import requests
 from .config import LM_STUDIO_MODELS_ENDPOINT
 
 
-def discover_lmstudio_models(
+def discover_lmstudio_models(  # deprecated - use LMStudioClient.discover_models instead
     endpoint: str = LM_STUDIO_MODELS_ENDPOINT,
     timeout: int = 5
 ) -> List[Dict[str, Any]]:

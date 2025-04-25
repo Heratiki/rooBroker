@@ -7,7 +7,7 @@ from .config import LM_STUDIO_MODELS_ENDPOINT, CHAT_COMPLETIONS_ENDPOINT
 from .timeout import get_model_timeout
 
 
-def call_lmstudio_with_max_context(
+def call_lmstudio_with_max_context(  # deprecated - use LMStudioClient.run_completion instead
     model_id: str,
     messages: List[Dict[str, str]],
     api_endpoint: str = CHAT_COMPLETIONS_ENDPOINT,
