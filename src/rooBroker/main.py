@@ -8,8 +8,8 @@ It routes execution to either CLI or interactive mode based on command-line argu
 import sys
 from typing import NoReturn
 
-from . import main_cli
-from . import main_interactive
+from rooBroker import main_cli
+from rooBroker import main_interactive
 
 
 def main() -> NoReturn:
