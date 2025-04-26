@@ -1,20 +1,28 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
+[tool.poetry]
 name = "roobroker"
 version = "0.1.0"
-authors = [
-  { name="Heratiki", email="heratiki@gmail.com" },
-]
 description = "RooBroker Local LLM Model Optimizer"
+authors = ["Heratiki <heratiki@gmail.com>"]
 readme = "README.md"
-requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
+
+[tool.poetry.dependencies]
+python = ">=3.9"
+rich = "^13.0.0"
+requests = "^2.31.0"
+typing-extensions = "^4.5.0"
+types-requests = "^2.28.11.8"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+mypy = "^1.0.0"
 
 [tool.mypy]
 python_version = "3.9"

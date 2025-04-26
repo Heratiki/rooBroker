@@ -18,7 +18,7 @@ from rooBroker.interfaces.lmstudio.client import LMStudioClient
 from rooBroker.roo_types.discovery import DiscoveredModel
 from rooBroker.roomodes.update import update_roomodes
 from rooBroker.lmstudio.context_proxy import run_proxy_server
-from rooBroker.lmstudio.deepeval import benchmark_with_bigbench
+# from rooBroker.lmstudio.deepeval import benchmark_with_bigbench  # Removed due to deepeval changes removing BIG-BENCH-HARD
 from rooBroker.ui.common_formatters import pretty_print_models, pretty_print_benchmarks
 from rooBroker.ui.interactive_utils import display_menu, select_models, select_models_by_number, run_proxy_with_ui
 

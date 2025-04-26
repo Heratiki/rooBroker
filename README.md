@@ -13,10 +13,15 @@ LM Studio Project Manager helps you:
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+ (required for latest type hints)
 - LM Studio running locally (default: http://localhost:1234)
-- Rich library (`pip install rich`)
-- Requests library (`pip install requests`)
+- Rich library for UI components
+- Requests library for API communication
+
+Dependencies can be installed via:
+```bash
+pip install -r requirements.txt
+```
 
 ## Installation
 
@@ -59,52 +64,98 @@ The typical workflow is:
 6. Select option 3 to update RooCode modes
 7. Your models will now be available as modes in RooCode
 
-## Files
+## Project Structure
 
-- `main.py`: Main CLI interface
-- `lmstudio_model_discovery.py`: Functions for discovering and benchmarking models
-- `lmstudio_modelstate.py`: State management functions
-- `lmstudio_roomodes.py`: RooCode mode generation
+The project follows a modular architecture with clear domain separation:
+
+### Core Modules
+- `core/benchmarking.py`: Provider-agnostic benchmarking system
+- `core/discovery.py`: Model discovery logic
+- `core/mode_management.py`: RooCode mode generation and updates
+- `core/proxy.py`: Context optimization proxy
+- `core/state.py`: State management system
+
+### Interface Layer
+- `interfaces/base.py`: Base protocol for model providers
+- `interfaces/lmstudio/`: LM Studio specific implementation
+- `interfaces/ollama/`: Ollama integration (in development)
+
+### Entry Points
+- `main_cli.py`: Command-line interface
+- `main_interactive.py`: Interactive menu interface
 
 ## State Files
 
 - `.modelstate.json`: Stores model information and benchmark results
 - `.roomodes`: RooCode configuration file with custom modes based on your models
 
-## Benchmarks
+## Benchmarking System
 
-Models are tested against three levels of tasks:
+Models are evaluated across multiple task types and difficulty levels:
 
-- **Simple**: Basic arithmetic (e.g., "What is 7 * 8?")
-- **Moderate**: Simple function creation (e.g., "Write a Python function to square a number")  
-- **Complex**: Code refactoring (e.g., "Refactor a loop to use list comprehension")
+### Task Types
+- **Statement Level**: Single line or statement-level code generation
+- **Function Level**: Complete function implementation with proper typing
+- **Class Level**: Full class implementation with OOP principles
+- **Algorithm Level**: Complex algorithm and data structure implementation
+- **Context Testing**: Context window utilization evaluation
 
-## Example
+### Difficulty Levels
+- **Basic**: Entry-level tasks requiring fundamental programming knowledge
+- **Intermediate**: Tasks requiring good programming practices and type safety
+- **Advanced**: Complex tasks requiring expert knowledge and optimization
+
+### Evaluation Metrics
+- **Code Quality**:
+  - Conciseness and efficiency
+  - Readability and maintainability
+  - Documentation completeness
+  - Type hint compliance (Python 3.11+)
+  - Error handling implementation
+- **Model Capabilities**:
+  - Context window utilization
+  - Task completion accuracy
+  - Response generation speed
+  - Problem-solving approach
+
+## Features
+
+### Comprehensive Model Evaluation
+- **Structured Benchmarking**: Models are evaluated across multiple task types and difficulty levels
+- **Type Safety Focus**: Validates Python 3.10+ type hint compliance
+- **Code Quality Metrics**: Evaluates conciseness, readability, documentation, and error handling
+- **Context Window Testing**: Optimizes model performance through context window utilization tests
+
+### Smart Management
+- **Provider-Agnostic Design**: Core logic works with multiple model providers (LM Studio, Ollama)
+- **State Management**: Automatic state persistence with comprehensive metrics
+- **Smart Timeouts**: Dynamic timeout adjustment based on model size and task complexity:
+  - 120s for large models (7B+ parameters)
+  - 60s for medium models
+  - 30s for smaller models
+
+### Interactive UI Options
+- **CLI Interface**: Quick command-line operations
+- **Rich Interactive Menu**: Full-featured interface with:
+  - Real-time progress tracking
+  - Detailed performance metrics
+  - Visual benchmark results
+  - Model comparison tools
+
+### Example Menu
 
 ```
-╭──────── Main Menu ────────╮
-│ LM Studio Project Manager │
+╭────────── Main Menu ───────────╮
+│ LM Studio Project Manager      │
 │ 1. Discover & Benchmark Models │
-│ 2. Manual Save Model State (Optional) │
-│ 3. Update Roomodes        │
-│ 4. Run All Steps          │
-│ 5. Exit                   │
-╰───────────────────────────╯
+│ 2. Manual Save Model State     │
+│ 3. Update Roomodes             │
+│ 4. Run All Steps               │
+│ 5. View Benchmark Results      │
+│ 6. Launch Context Proxy        │
+│ 7. Exit                        │
+╰────────────────────────────────╯
 ```
-
-## Advanced Features
-
-- **Adaptive Prompting**: The system uses one model to improve prompts for another model
-- **Performance Profiling**: Models are scored across different complexity levels
-- **Custom Instructions**: Generated RooCode modes include performance data and prompt improvement tips
-- **Interactive Benchmarking**: After each model is benchmarked, you can decide whether to continue with remaining models (5-second timeout)
-- **Automatic State Management**: Model state is automatically saved after each benchmark
-- **Smart Timeout Management**: Automatically adjusts request timeouts based on model size:
-  - 120 seconds (2 minutes) for large models (7B, 13B, 32B parameters)
-  - 60 seconds (1 minute) for medium-sized models
-  - 30 seconds for smaller models
-- **Detailed Visual Progress**: Rich UI with progress bars, status indicators, and real-time feedback during benchmarking
-- **Prompt Optimization Tracking**: Failed prompts are analyzed and improved versions are saved for future use
 
 ## Prompt Optimization and RooCode Integration
 
