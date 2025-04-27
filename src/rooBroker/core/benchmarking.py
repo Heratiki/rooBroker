@@ -274,7 +274,7 @@ def run_standard_benchmarks(
     results: List[Dict[str, Any]] = []
     
     for model in models_to_benchmark:
-        model_id: str = model.model_id
+        model_id: str = model["id"]
         
         model_result: Dict[str, Any] = {
             "model_id": model_id,
