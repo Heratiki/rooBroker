@@ -15,6 +15,27 @@ from rich.prompt import IntPrompt
 from rich.console import Console
 from rich.text import Text
 
+import sys
+# Cross-platform single-key reader
+if sys.platform.startswith("win"):
+    import msvcrt
+    def read_single_key() -> str:
+        """Read a single keypress on Windows."""
+        return msvcrt.getwch()
+else:
+    import termios as _termios, tty as _tty
+    def read_single_key() -> str:
+        """Read a single keypress on Unix-like systems."""
+        fd = sys.stdin.fileno()
+        old_settings = _termios.tcgetattr(fd)  # type: ignore
+        try:
+            _tty.setraw(fd)  # type: ignore
+            ch = sys.stdin.read(1)
+        finally:
+            _termios.tcsetattr(fd, _termios.TCSADRAIN, old_settings)  # type: ignore
+        return ch
+
+
 from rooBroker.ui.interactive_layout import InteractiveLayout, ModelInfo
 from rooBroker.core.discovery import discover_all_models, discover_models_with_status
 from rooBroker.core.benchmarking import run_standard_benchmarks
@@ -500,29 +521,33 @@ async def interactive_main() -> None:
             
             running = True
             while running:
-                try:
-                    # Use run_in_executor to avoid blocking the async event loop
-                    choice_str = await asyncio.get_event_loop().run_in_executor(
-                        None, 
-                        lambda: input("\nEnter your choice: ") # Use standard input for better async handling
-                    )
-                    
-                    # Validate input
-                    if not choice_str.isdigit():
-                         layout.prompt.add_message("[red]Invalid input. Please enter a number.[/red]")
-                         layout.prompt.set_status("Invalid input")
-                         continue
-
-                    choice = int(choice_str)
-                    running = await handle_menu_choice(choice)
-                except (ValueError, EOFError): # Handle potential errors during input
-                    layout.prompt.add_message("[red]Invalid input. Please try again.[/red]")
-                    layout.prompt.set_status("Invalid input")
-                except KeyboardInterrupt:
+                # Read a single keypress without requiring Enter
+                key = await asyncio.get_event_loop().run_in_executor(None, read_single_key)
+                # Handle Ctrl+C (Windows returns '\x03')
+                if key == '\x03':
                     layout.prompt.add_message("\n[yellow]Ctrl+C detected. Exiting...[/yellow]")
-                    running = False # Initiate clean exit
-                    await handle_menu_choice(8) # Trigger cleanup
-                    
+                    running = False
+                    await handle_menu_choice(8)
+                    break
+                # Handle scroll and quit keys
+                if key.lower() in ['w', 's', 'q']:
+                    # For 'w'/'s', scrolling; for 'q', quit
+                    cont = layout.handle_input(key)
+                    if not cont:
+                        running = False
+                        await handle_menu_choice(8)
+                        break
+                    continue
+                # Handle numeric menu selections
+                if key.isdigit():
+                    choice = int(key)
+                    running = await handle_menu_choice(choice)
+                    continue
+                # Ignore other keys
+                # Optionally, display instruction hint
+                layout.prompt.add_message("[dim]Press 1-8 to select, W/S to scroll, Q to quit[/dim]")
+                layout.prompt.set_status("Waiting for input")
+                
     except Exception as e:
         console.print(f"[red]An unexpected error occurred in the main loop: {str(e)}[/red]")
         # Potentially log the full traceback here
@@ -547,7 +572,3 @@ def main() -> int:
         console.print(f"[red]Fatal Error: {str(e)}[/red]")
         # Consider logging the traceback here for debugging
         return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
