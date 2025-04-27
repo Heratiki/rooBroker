@@ -75,8 +75,12 @@ class ModelsSection:
 
     def __rich__(self) -> Panel:
         """Return the rich panel containing the models list."""
+        # define columns: model name, status, and provider/details
         table = Table(box=None, show_header=False, padding=(0, 1))
-        
+        table.add_column("Model", style="white")
+        table.add_column("Status", no_wrap=True)
+        table.add_column("Details", style="magenta")
+         
         visible_models = self.models[self.scroll_position:self.scroll_position + self.visible_lines]
         for model in visible_models:
             status_style = {
@@ -88,7 +92,8 @@ class ModelsSection:
             
             table.add_row(
                 Text(f"- {model.name}", style="white"),
-                Text(f"({model.status})", style=status_style)
+                Text(f"({model.status})", style=status_style),
+                Text(model.details or "", style="magenta")
             )
 
         scroll_info = ""
@@ -140,13 +145,15 @@ class PromptSection:
     """Manages the prompt improvement section of the TUI."""
     
     def __init__(self):
-        self.messages: List[str] = []
+        self.messages: List[Text] = [] # Store Text objects directly
         self.max_messages = 8
         self.status: Optional[str] = None
 
     def add_message(self, message: str) -> None:
-        """Add a new message to the prompt improvement section."""
-        self.messages.append(message)
+        """Add a new message to the prompt improvement section, parsing Rich markup."""
+        # Parse the message using Rich markup
+        text_message = Text.from_markup(message)
+        self.messages.append(text_message)
         if len(self.messages) > self.max_messages:
             self.messages.pop(0)
 
@@ -167,8 +174,8 @@ class PromptSection:
             messages_to_display.append(Text(self.status, style="bold cyan"))
             messages_to_display.append(Text("―" * 30, style="dim"))  # Separator
             
-        # Add regular messages
-        messages_to_display.extend([Text(msg) for msg in self.messages])
+        # Add regular messages (already Text objects)
+        messages_to_display.extend(self.messages) # No need to wrap in Text() again
         
         content = Group(*messages_to_display)
         return Panel(
