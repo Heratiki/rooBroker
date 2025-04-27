@@ -1,8 +1,7 @@
 """Type definitions for model-related data structures."""
 
-from typing import Dict, Optional, TypedDict, Literal, NotRequired
+from typing import Dict, Optional, TypedDict, Literal, NotRequired, Any
 
-from .benchmarking import BigBenchScores
 from .settings import OpenRouterModelInfo, VSCodeModelSelector
 
 PromptImprovement = TypedDict('PromptImprovement', {
@@ -19,7 +18,6 @@ class ModelState(TypedDict, total=False):
     score_moderate: float
     score_complex: float
     score_context_window: float
-    bigbench_scores: BigBenchScores
     prompt_improvements: Dict[str, PromptImprovement]
     last_updated: str
 
@@ -57,4 +55,4 @@ class OllamaModelDetails(TypedDict, total=False):
     context_window: int
     version: str
     status: str
-    additional_info: dict[str, any]
+    additional_info: Dict[str, Any]
