@@ -45,20 +45,38 @@ class OllamaClient(ModelProviderClient):
             response = requests.get(self.tags_endpoint, timeout=5)
             response.raise_for_status()
             data = response.json()
+        except requests.exceptions.ConnectionError as e:
+            raise RuntimeError(f"Failed to connect to Ollama server: {e}") from e
+        except requests.exceptions.Timeout as e:
+            raise RuntimeError(f"Connection to Ollama timed out: {e}") from e
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Failed to query Ollama models endpoint: {e}") from e
         except Exception as e:
-            print(f"Warning: Failed to query Ollama models endpoint: {e}")
-            return []
+            raise RuntimeError(f"Unexpected error querying Ollama: {e}") from e
 
         models: List[DiscoveredModel] = []
         for model in data.get("models", []):
-            model_info = OllamaModelInfo(
-                id=model.get("name", ""),
-                name=model.get("name", ""),
-                # Use default context window since it's not provided in /api/tags
-                context_window=8192,
-                version=model.get("tag", "latest"),
-                created=model.get("modified_at", 0)
-            )
+            # Get the model name which is required
+            model_name = model.get("name", "")
+            if not model_name:
+                # Skip models without a name
+                continue
+
+            # Create a ModelInfo with required keys
+            model_info: OllamaModelInfo = {
+                "id": model_name,  # Required
+                "name": model_name,  # Required
+            }
+            
+            # Add optional fields if available
+            model_info["context_window"] = 8192  # Default value, actual value not provided in /api/tags
+            
+            if model.get("tag"):
+                model_info["version"] = model.get("tag", "latest")
+                
+            if model.get("modified_at"):
+                model_info["created"] = model.get("modified_at", 0)
+                
             models.append(model_info)
         return models
 
@@ -80,13 +98,26 @@ class OllamaClient(ModelProviderClient):
             response.raise_for_status()
             data = response.json()
 
-            return OllamaModelInfo(
-                id=model_id,
-                name=model_id,
-                context_window=data.get("parameters", {}).get("context_length", 8192),
-                version=data.get("tag", "latest"),
-                created=data.get("modified_at", 0)
-            )
+            # Create a ModelInfo with required keys
+            model_info: OllamaModelInfo = {
+                "id": model_id,  # Required
+                "name": model_id,  # Required
+            }
+            
+            # Add optional fields if available
+            context_length = data.get("parameters", {}).get("context_length")
+            if context_length:
+                model_info["context_window"] = context_length
+            else:
+                model_info["context_window"] = 8192  # Default
+                
+            if data.get("tag"):
+                model_info["version"] = data.get("tag", "latest")
+                
+            if data.get("modified_at"):
+                model_info["created"] = data.get("modified_at", 0)
+                
+            return model_info
         except Exception as e:
             print(f"Warning: Failed to get model details for {model_id}: {e}")
             return None
@@ -115,16 +146,15 @@ class OllamaClient(ModelProviderClient):
         """
         # Convert messages to Ollama format
         ollama_messages = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
-
-        # Prepare payload with context optimization
+        
+        # Prepare the payload
         payload: Dict[str, Any] = {
             "model": model_id,
             "messages": ollama_messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False  # Ensure we get a complete response
+            "max_tokens": max_tokens
         }
-
+        
         try:
             response = requests.post(
                 self.chat_endpoint,
@@ -133,13 +163,13 @@ class OllamaClient(ModelProviderClient):
             )
             response.raise_for_status()
             result = response.json()
-
+            
             # Extract the generated text from the response
-            if "message" not in result:
-                raise ValueError("No message in response")
-
+            if not result.get("message", {}).get("content"):
+                raise ValueError("No content in response message")
+            
             return result["message"]["content"]
-
+            
         except requests.RequestException as e:
             raise ConnectionError(f"Failed to connect to Ollama: {e}")
         except Exception as e:

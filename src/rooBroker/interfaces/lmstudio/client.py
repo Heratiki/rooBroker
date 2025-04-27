@@ -5,13 +5,14 @@ protocol for interacting with LM Studio's API. It handles model discovery and
 completion requests with proper error handling and context optimization.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, cast
 import requests
 
 from rooBroker.interfaces.base import ModelProviderClient
 from rooBroker.roo_types.discovery import (
     DiscoveredModel,
     ChatMessage,
+    ModelInfo
 )
 
 
@@ -41,16 +42,40 @@ class LMStudioClient(ModelProviderClient):
             response = requests.get(self.models_endpoint, timeout=5)
             response.raise_for_status()
             data = response.json()
+        except requests.exceptions.ConnectionError as e:
+            raise RuntimeError(f"Failed to connect to LM Studio server: {e}") from e
+        except requests.exceptions.Timeout as e:
+            raise RuntimeError(f"Connection to LM Studio timed out: {e}") from e  
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Failed to query LM Studio models endpoint: {e}") from e
         except Exception as e:
-            raise RuntimeError(f"Failed to query LM Studio models endpoint: {e}")
+            raise RuntimeError(f"Unexpected error querying LM Studio: {e}") from e
 
         models: List[DiscoveredModel] = []
         for model in data.get("data", []):
-            model_info = DiscoveredModel(
-                id=model.get("id") or model.get("name"),
-                family=model.get("family"),
-                context_window=model.get("context_length") or model.get("context_window")
-            )
+            # Create a ModelInfo (which is a TypedDict, not a class)
+            # Ensure required keys are always provided
+            model_id = model.get("id") or model.get("name")
+            if not model_id:
+                # Skip models without ID
+                continue
+                
+            model_info: ModelInfo = {
+                "id": model_id,  # Required key
+                # Optional keys added only if they exist
+            }
+            
+            # Add optional fields only if they exist
+            if model.get("family"):
+                model_info["family"] = model.get("family")
+                
+            context_window = model.get("context_length") or model.get("context_window")
+            if context_window:
+                model_info["context_window"] = context_window
+                
+            if model.get("created"):
+                model_info["created"] = model.get("created")
+                
             models.append(model_info)
         return models
 
@@ -65,7 +90,7 @@ class LMStudioClient(ModelProviderClient):
         """
         models = self.discover_models()
         for model in models:
-            if model.id == model_id:
+            if model.get("id") == model_id:
                 return model
         return None
 
@@ -92,7 +117,7 @@ class LMStudioClient(ModelProviderClient):
             ValueError: If the model_id is invalid or other parameter validation fails.
         """
         # Convert messages to LM Studio format
-        lm_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+        lm_messages = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
 
         # Prepare the payload with context optimization
         payload: Dict[str, Any] = {
@@ -103,17 +128,27 @@ class LMStudioClient(ModelProviderClient):
 
         # Optimize context if model details are available
         model_details = self.get_model_details(model_id)
-        if model_details and model_details.context_window:
-            context_length = model_details.context_window
-            response_buffer = min(max_tokens, max(1000, int(context_length * 0.25)))
-            payload["max_tokens"] = response_buffer
-            input_limit = context_length - response_buffer
-            
-            # Estimate input tokens (rough approximation)
-            estimated = sum(len(m.content) // 4 for m in messages)
-            if estimated > input_limit * 0.9:
-                print(f"Warning: Input may exceed token limit. Est: {estimated}, Limit: {input_limit}")
+        # Safely access context_window with a default value since it's not a required key
+        if model_details:
+            # Use .get() with a default value to safely handle optional keys
+            context_length = model_details.get("context_window", 0)
+            if context_length:
+                response_buffer = min(max_tokens, max(1000, int(context_length * 0.25)))
+                payload["max_tokens"] = response_buffer
+                input_limit = context_length - response_buffer
+                
+                # Estimate input tokens (rough approximation)
+                estimated = sum(len(m["content"]) // 4 for m in messages)
+                if estimated > input_limit * 0.9:
+                    print(f"Warning: Input may exceed token limit. Est: {estimated}, Limit: {input_limit}")
+                continue_with_default = False
+            else:
+                continue_with_default = True
         else:
+            continue_with_default = True
+            
+        # If we didn't have valid context information, use the default max_tokens
+        if continue_with_default:
             payload["max_tokens"] = max_tokens
 
         try:

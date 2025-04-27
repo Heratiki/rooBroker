@@ -22,16 +22,16 @@ class ModelInfo:
 
 class MenuSection:
     """Manages the menu section of the TUI."""
-    
     def __init__(self):
         self.options = [
-            "1. Discover & Benchmark Models",
-            "2. Manual Save Model State",
-            "3. Update Roomodes",
-            "4. Run All Steps",
-            "5. View Benchmark Results",
-            "6. Launch Context Proxy",
-            "7. Exit"
+            "1. Discover Models",
+            "2. Benchmark Models",
+            "3. Manual Save Model State",
+            "4. Update Roomodes",
+            "5. Run All Steps",
+            "6. View Benchmark Results",
+            "7. Launch Context Proxy",
+            "8. Exit"
         ]
         self.selected = 0
 
@@ -141,7 +141,8 @@ class PromptSection:
     
     def __init__(self):
         self.messages: List[str] = []
-        self.max_messages = 5
+        self.max_messages = 8
+        self.status: Optional[str] = None
 
     def add_message(self, message: str) -> None:
         """Add a new message to the prompt improvement section."""
@@ -149,9 +150,27 @@ class PromptSection:
         if len(self.messages) > self.max_messages:
             self.messages.pop(0)
 
+    def set_status(self, status: str) -> None:
+        """Set the current status message to display at the top."""
+        self.status = status
+
+    def clear_status(self) -> None:
+        """Clear the current status message."""
+        self.status = None
+
     def __rich__(self) -> Panel:
         """Return the rich panel containing the prompt improvement messages."""
-        content = Group(*[Text(msg) for msg in self.messages])
+        messages_to_display = []
+        
+        # Add status if set
+        if self.status:
+            messages_to_display.append(Text(self.status, style="bold cyan"))
+            messages_to_display.append(Text("―" * 30, style="dim"))  # Separator
+            
+        # Add regular messages
+        messages_to_display.extend([Text(msg) for msg in self.messages])
+        
+        content = Group(*messages_to_display)
         return Panel(
             content,
             title="Prompt Improvement",
