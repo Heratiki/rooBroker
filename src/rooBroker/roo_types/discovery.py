@@ -2,8 +2,6 @@
 
 from typing import Any, Callable, TypedDict, Union, Literal
 
-from .benchmarking import BigBenchScores
-
 class BenchmarkTest(TypedDict):
     """Definition for a single benchmark test."""
     prompt: str

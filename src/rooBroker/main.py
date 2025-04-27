@@ -8,8 +8,9 @@ It routes execution to either CLI or interactive mode based on command-line argu
 import sys
 from typing import NoReturn
 
-from rooBroker import main_cli
-from rooBroker import main_interactive
+# Import the specific functions from each module
+from rooBroker.main_cli import main as cli_main
+from rooBroker.main_interactive import main as interactive_main
 
 
 def main() -> NoReturn:
@@ -24,10 +25,10 @@ def main() -> NoReturn:
     """
     if len(sys.argv) > 1:
         # Arguments provided - use CLI mode
-        sys.exit(main_cli.main())
+        sys.exit(cli_main())
     else:
         # No arguments - use interactive mode
-        sys.exit(main_interactive.main())
+        sys.exit(interactive_main())
 
 
 if __name__ == "__main__":

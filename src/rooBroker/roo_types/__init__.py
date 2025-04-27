@@ -1,12 +1,11 @@
 """Common type definitions for the RooBroker project."""
 
 from .benchmarking import (
-    BigBenchTask,
-    BigBenchScores,
-    TaskScore,
-    ComplexityScores,
-    ComplexityCategory,
-    MetricsDict
+    BenchmarkResult,
+    CategoryResults,
+    BenchmarkSummary,
+    MetricResult,
+    TestResult
 )
 from .models import (
     ModelState,
@@ -36,12 +35,11 @@ from .settings import (
 
 __all__ = [
     # Benchmarking types
-    'BigBenchTask',
-    'BigBenchScores',
-    'TaskScore',
-    'ComplexityScores',
-    'ComplexityCategory',
-    'MetricsDict',
+    'BenchmarkResult',
+    'CategoryResults',
+    'BenchmarkSummary',
+    'MetricResult',
+    'TestResult',
     
     # Model types
     'ModelState',
