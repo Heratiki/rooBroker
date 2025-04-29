@@ -41,9 +41,10 @@ def test_load_model_state_success(mocker):
         'model-2': {'id': 'model-2', 'score': 0.9}
     }
 
-    # Mock Path.exists to return True
-    mock_path = mocker.patch('pathlib.Path')
-    mock_path.return_value.exists.return_value = True
+    # Mock Path within the state module
+    mock_path_constructor = mocker.patch('rooBroker.core.state.Path')
+    mock_path_instance = mock_path_constructor.return_value
+    mock_path_instance.exists.return_value = True
 
     # Mock the built-in open function and json.load
     mock_file = mocker.mock_open(read_data=json.dumps(expected_data))
@@ -55,8 +56,9 @@ def test_load_model_state_success(mocker):
 
     # Assert
     assert result == expected_data
-    mock_path.return_value.exists.assert_called_once()
-    mock_file.assert_called_once_with(test_file_path, 'r', encoding='utf-8')
+    mock_path_constructor.assert_called_once_with(test_file_path)
+    mock_path_instance.exists.assert_called_once()
+    mock_file.assert_called_once_with(mock_path_instance, 'r', encoding='utf-8') # open uses the Path instance
     mock_json_load.assert_called_once()
 
 def test_load_model_state_file_not_found(mocker):
@@ -81,11 +83,14 @@ def test_load_model_state_json_error(mocker):
     # Arrange
     test_file_path = "invalid_state.json"
 
-    # Mock Path.exists to return True
-    mock_path_exists = mocker.patch('pathlib.Path.exists', return_value=True)
+    # Mock Path within the state module
+    mock_path_constructor = mocker.patch('rooBroker.core.state.Path')
+    mock_path_instance = mock_path_constructor.return_value
+    mock_path_instance.exists.return_value = True
 
     # Mock the built-in open function
-    mocker.patch('builtins.open', mocker.mock_open())
+    mock_file = mocker.mock_open()
+    mocker.patch('builtins.open', mock_file)
 
     # Mock json.load to raise a JSONDecodeError
     mock_json_load = mocker.patch('json.load', side_effect=json.JSONDecodeError('Expecting value', 'doc', 0))
@@ -95,20 +100,21 @@ def test_load_model_state_json_error(mocker):
 
     # Assert
     assert result == {}
-    mock_path_exists.assert_called_once()
-    mocker.patch('builtins.open').assert_called_once_with(test_file_path, 'r', encoding='utf-8')
+    mock_path_constructor.assert_called_once_with(test_file_path)
+    mock_path_instance.exists.assert_called_once()
+    mock_file.assert_called_once_with(mock_path_instance, 'r', encoding='utf-8') # open uses the Path instance
     mock_json_load.assert_called_once()
 
 def test_load_models_as_list_success(mocker):
     # Arrange
     test_file_path = "dummy_path.json"
     mock_state_dict = {
-        'model-a': {'id': 'model-a'},
-        'model-b': {'id': 'model-b'}
+        'model-a': {'id': 'model-a', 'data': 1},
+        'model-b': {'id': 'model-b', 'data': 2}
     }
     expected_list = [
-        {'id': 'model-a'},
-        {'id': 'model-b'}
+        {'id': 'model-a', 'data': 1},
+        {'id': 'model-b', 'data': 2}
     ]
     mock_load = mocker.patch('rooBroker.core.state.load_model_state', return_value=mock_state_dict)
 

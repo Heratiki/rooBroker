@@ -1,7 +1,7 @@
 """Type definitions for modes-related data structures."""
 
 from typing import TypedDict, Dict, List, Union, Literal, Any, NotRequired
-from roo_types.models import ApiConfig, Priority, FileRestrictions
+from .models import ApiConfig, Priority, FileRestrictions
 
 class EditRestrictions(TypedDict):
     fileRegex: str
