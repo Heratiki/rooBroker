@@ -8,6 +8,7 @@ definitions, evaluation metrics, and execution logic.
 from typing import List, Dict, Any, Optional, cast
 from datetime import datetime, timezone
 import sys
+import re
 from math import comb
 
 from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage
@@ -125,7 +126,7 @@ def calculate_test_pass_rate(test_results: List[bool]) -> float:
         return 0.0
     return sum(1 for result in test_results if result) / len(test_results)
 
-def evaluate_response(response: str, bench: Dict[str, Any]) -> Dict[str, Any]:
+def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = False) -> Dict[str, Any]:
     """Evaluate a model response against test cases with enhanced metrics."""
     results = {
         "pass_all": False,
@@ -135,17 +136,38 @@ def evaluate_response(response: str, bench: Dict[str, Any]) -> Dict[str, Any]:
     }
     
     try:
+        if verbose:
+            print(f"Evaluating response:\n{response}\n")
+            
         # If there are test cases, run them
         if "test_cases" in bench:
             test_results = []
+            
+            # Extract code from the response if it's in a code block
+            code_block_pattern = r"```(?:python)?\s*([\s\S]*?)\s*```"
+            code_match = re.search(code_block_pattern, response)
+            
+            if code_match:
+                code_to_execute = code_match.group(1).strip()
+                if verbose:
+                    print("Extracted code block:")
+                    print(code_to_execute)
+            else:
+                code_to_execute = response.strip()
+                if verbose:
+                    print("No code block found, using raw response.")
             
             # Create a safe execution environment
             local_env = {}
             try:
                 # Execute the generated code in isolated environment
-                exec(response, {"__builtins__": __builtins__}, local_env)
+                if verbose:
+                    print("Executing generated code in isolated environment...")
+                exec(code_to_execute, {"__builtins__": __builtins__}, local_env)
                 
-                for test_case in bench["test_cases"]:
+                for i, test_case in enumerate(bench["test_cases"], 1):
+                    if verbose:
+                        print(f"\nRunning test case {i}/{len(bench['test_cases'])}...")
                     try:
                         if "sequence" in test_case:
                             # For class testing, create instance and run sequence
@@ -155,48 +177,87 @@ def evaluate_response(response: str, bench: Dict[str, Any]) -> Dict[str, Any]:
                                 instance = local_env[class_name]()
                                 result = None
                                 for op in test_case["sequence"]:
-                                    # Execute operation and capture last result
+                                    if verbose:
+                                        print(f"Executing operation: {op}")
                                     result = eval(f"instance.{op}")
-                                test_results.append(result == test_case["expected"])
+                                test_pass = result == test_case["expected"]
+                                test_results.append(test_pass)
+                                if verbose:
+                                    print(f"Result: {result}")
+                                    print(f"Expected: {test_case['expected']}")
+                                    print(f"Test passed: {test_pass}")
                             else:
                                 test_results.append(False)
                                 results["error"] = "No class definition found"
-                                
+                                if verbose:
+                                    print("Error: No class definition found")
                         elif "verification" in test_case:
                             # For structural/type verification
-                            test_results.append(eval(test_case["verification"], 
-                                               {"response": response, **local_env}))
+                            if verbose:
+                                print(f"Running verification: {test_case['verification']}")
+                            verification_context = {"response": code_to_execute, **local_env}
+                            test_pass = eval(test_case["verification"], verification_context)
+                            test_results.append(test_pass)
+                            if verbose:
+                                print(f"Test passed: {test_pass}")
                         else:
                             # For function testing
-                            func_name = response.split("def ")[1].split("(")[0] if "def " in response else None
+                            func_name = code_to_execute.split("def ")[1].split("(")[0] if "def " in code_to_execute else None
                             if func_name and func_name in local_env:
+                                if verbose:
+                                    print(f"Testing function {func_name} with input: {test_case['input']}")
                                 result = local_env[func_name](**test_case["input"])
-                                test_results.append(result == test_case["expected"])
+                                test_pass = result == test_case["expected"]
+                                test_results.append(test_pass)
+                                if verbose:
+                                    print(f"Result: {result}")
+                                    print(f"Expected: {test_case['expected']}")
+                                    print(f"Test passed: {test_pass}")
                             else:
                                 # For single statement evaluation
-                                result = eval(response, {"__builtins__": __builtins__}, 
+                                if verbose:
+                                    print(f"Evaluating statement with input: {test_case['input']}")
+                                result = eval(code_to_execute, {"__builtins__": __builtins__}, 
                                         {**test_case["input"], **local_env})
-                                test_results.append(result == test_case["expected"])
-                                
+                                test_pass = result == test_case["expected"]
+                                test_results.append(test_pass)
+                                if verbose:
+                                    print(f"Result: {result}")
+                                    print(f"Expected: {test_case['expected']}")
+                                    print(f"Test passed: {test_pass}")
                     except Exception as e:
                         test_results.append(False)
                         results["error"] = f"Test case execution error: {str(e)}"
+                        if verbose:
+                            print(f"Test case execution error: {str(e)}")
                 
             except Exception as e:
                 results["error"] = f"Code execution error: {str(e)}"
+                if verbose:
+                    print(f"Code execution error: {str(e)}")
                 return results
             
             results["test_results"] = test_results
             results["test_pass_rate"] = calculate_test_pass_rate(test_results)
             results["pass_all"] = all(test_results)
             
+            if verbose:
+                print(f"\nFinal results:")
+                print(f"Test pass rate: {results['test_pass_rate']}")
+                print(f"All tests passed: {results['pass_all']}")
+            
         # Fallback to exact match if no test cases
         else:
             results["pass_all"] = bench["expected"] in response
             results["test_pass_rate"] = 1.0 if results["pass_all"] else 0.0
+            if verbose:
+                print(f"No test cases, using exact match.")
+                print(f"Match found: {results['pass_all']}")
             
     except Exception as e:
         results["error"] = f"Evaluation error: {str(e)}"
+        if verbose:
+            print(f"Evaluation error: {str(e)}")
         
     return results
 
@@ -277,9 +338,84 @@ def run_standard_benchmarks(
     
     for model in models_to_benchmark:
         model_id: str = model["id"]
+        
+        # Skip embedding models
+        if "embed" in model_id.lower() or "embedding" in model_id.lower():
+            if verbose:
+                print(f"Skipping embedding model: {model_id}")
+            continue
+            
         if verbose:
-            print(f"Starting benchmark for model: {model_id}")
-        # ...existing code...
+            print(f"\nStarting benchmark for model: {model_id}")
+            
+        model_result = {
+            "model_id": model_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "task_results": [],
+            "failures": 0
+        }
+        
+        # Run each benchmark multiple times for pass@k calculation
+        for bench in benchmarks:
+            if verbose:
+                print(f"\nRunning benchmark: {bench['name']}")
+                print(f"Type: {bench['type']}, Difficulty: {bench['difficulty']}")
+            
+            for sample in range(num_samples):
+                if verbose:
+                    print(f"\nGenerating sample {sample + 1}/{num_samples}")
+                    
+                try:
+                    # Construct messages for the model
+                    messages = [
+                        {"role": "system", "content": bench["system_prompt"]},
+                        {"role": "user", "content": bench["prompt"]}
+                    ]
+                    
+                    if verbose:
+                        print("Sending request to model:")
+                        print(f"System prompt: {bench['system_prompt']}")
+                        print(f"User prompt: {bench['prompt']}")
+                    
+                    # Get completion from the model
+                    response = client.run_completion(
+                        model_id=model_id,
+                        messages=cast(List[ChatMessage], messages),
+                        temperature=bench.get("temperature", 0.2)
+                    )
+                    
+                    if verbose:
+                        print("\nReceived response:")
+                        print(response)
+                    
+                    # Evaluate the response
+                    eval_result = evaluate_response(response, bench, verbose)
+                    
+                    if verbose:
+                        print("\nEvaluation results:")
+                        print(f"Pass all tests: {eval_result['pass_all']}")
+                        print(f"Test pass rate: {eval_result['test_pass_rate']}")
+                        if eval_result['error']:
+                            print(f"Error: {eval_result['error']}")
+                    
+                    model_result["task_results"].append({
+                        "benchmark": bench["name"],
+                        "type": bench["type"],
+                        "difficulty": bench["difficulty"],
+                        "sample_index": sample,
+                        **eval_result
+                    })
+                    
+                except Exception as e:
+                    if verbose:
+                        print(f"Failed to run benchmark: {str(e)}")
+                    model_result["failures"] += 1
+        
         if verbose:
-            print(f"Completed benchmark for model: {model_id}")
+            print(f"\nCompleted benchmark for model: {model_id}")
+            print(f"Total tasks completed: {len(model_result['task_results'])}")
+            print(f"Failures: {model_result['failures']}")
+        
+        results.append(model_result)
+        
     return results

@@ -146,14 +146,13 @@ class OllamaClient(ModelProviderClient):
             ValueError: If the model_id is invalid or other parameter validation fails.
         """
         # Convert messages to Ollama format
-        ollama_messages = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
-
-        # Prepare the payload
+        ollama_messages = [{"role": msg["role"], "content": msg["content"]} for msg in messages]        # Prepare the payload
         payload: Dict[str, Any] = {
             "model": model_id,
             "messages": ollama_messages,
             "temperature": temperature,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            "stream": False
         }
 
         try:
