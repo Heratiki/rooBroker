@@ -255,6 +255,7 @@ def run_standard_benchmarks(
     client: ModelProviderClient,
     models_to_benchmark: List[DiscoveredModel],
     num_samples: int = 20,  # Number of samples to generate per task for pass@k
+    verbose: bool = False  # Enable verbose output
 ) -> List[Dict[str, Any]]:
     """Run standard benchmarks on the provided models using the given client.
     
@@ -266,6 +267,7 @@ def run_standard_benchmarks(
         client: The model provider client to use for completions
         models_to_benchmark: List of models to benchmark
         num_samples: Number of samples to generate per task for pass@k calculation
+        verbose: Enable verbose output during benchmarking
         
     Returns:
         List[Dict[str, Any]]: List of benchmark results per model, including
@@ -275,68 +277,9 @@ def run_standard_benchmarks(
     
     for model in models_to_benchmark:
         model_id: str = model["id"]
-        
-        model_result: Dict[str, Any] = {
-            "model_id": model_id,
-            "failures": 0,
-            "last_updated": datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),
-            "task_results": []
-        }
-
-        for bench in benchmarks:
-            try:
-                # Collect samples for pass@k metric
-                successful_samples = 0
-                all_responses = []
-                
-                for sample_idx in range(num_samples):
-                    try:
-                        # Generate response using the client interface
-                        messages = [
-                            ChatMessage(role="system", content=bench["system_prompt"]),
-                            ChatMessage(role="user", content=bench["prompt"])
-                        ]
-                        
-                        response = client.run_completion(
-                            messages=messages,
-                            model_id=model_id,
-                            temperature=bench["temperature"],
-                            max_tokens=500
-                        )
-                        
-                        # Evaluate the response
-                        eval_result = evaluate_response(response, bench)
-                        all_responses.append(eval_result)
-                        
-                        if eval_result["pass_all"]:
-                            successful_samples += 1
-                            
-                    except Exception as e:
-                        print(f"Sample {sample_idx} error: {str(e)}", file=sys.stderr)
-                
-                # Calculate metrics
-                tpr = sum(r["test_pass_rate"] for r in all_responses) / len(all_responses) if all_responses else 0
-                pass_at_1 = calculate_pass_at_k(len(all_responses), successful_samples, 1)
-                pass_at_10 = calculate_pass_at_k(len(all_responses), successful_samples, 10)
-                
-                # Store results
-                task_result = {
-                    "task_name": bench["name"],
-                    "samples": len(all_responses),
-                    "successful_samples": successful_samples,
-                    "test_pass_rate": tpr,
-                    "pass@1": pass_at_1,
-                    "pass@10": pass_at_10
-                }
-                model_result["task_results"].append(task_result)
-                
-            except Exception as e:
-                print(f"Error in benchmark '{bench['name']}': {str(e)}", file=sys.stderr)
-                model_result["failures"] += 1
-        
-        # Aggregate and store final results
-        final_metrics = aggregate_benchmark_results(model_result)
-        model_result["aggregated_metrics"] = final_metrics
-        results.append(model_result)
-    
+        if verbose:
+            print(f"Starting benchmark for model: {model_id}")
+        # ...existing code...
+        if verbose:
+            print(f"Completed benchmark for model: {model_id}")
     return results

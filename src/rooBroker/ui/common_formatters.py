@@ -1,18 +1,19 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 from rich.console import Console
 from rich.table import Table
 from rich import box
+from rooBroker.roo_types.discovery import DiscoveredModel
 
 console = Console()
 
-def pretty_print_models(models: List[Dict[str, Any]]) -> None:
+def pretty_print_models(models: Sequence[DiscoveredModel]) -> None:
     table = Table(title="Discovered Models", box=box.SIMPLE)
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Family", style="magenta")
     table.add_column("Context Window", style="green")
     for m in models:
         table.add_row(
-            str(m.get("id", "")),
+            str(m["id"]),
             str(m.get("family", "")),
             str(m.get("context_window", ""))
         )
