@@ -54,10 +54,12 @@ class MenuSection:
 class ModelsSection:
     """Manages the available models section of the TUI."""
     
-    def __init__(self):
+    def __init__(self, console: Console):
+        # Store console for dynamic sizing
+        self.console = console
         self.models: List[ModelInfo] = []
         self.scroll_position = 0
-        self.visible_lines = 10
+        # visible_lines removed; calculated dynamically in __rich__
 
     def add_model(self, model: ModelInfo) -> None:
         """Add a model to the list."""
@@ -70,18 +72,25 @@ class ModelsSection:
 
     def scroll_down(self) -> None:
         """Scroll the model list down."""
-        if self.scroll_position < max(0, len(self.models) - self.visible_lines):
+        # Recalculate visible_lines dynamically
+        available_height = max(1, int(self.console.height * 0.70) - 3)
+        visible_lines = available_height
+        max_scroll = max(0, len(self.models) - visible_lines)
+        if self.scroll_position < max_scroll:
             self.scroll_position += 1
 
     def __rich__(self) -> Panel:
         """Return the rich panel containing the models list."""
+        # Estimate dynamic visible lines based on console height and panel chrome
+        available_height = max(1, int(self.console.height * 0.70) - 3)
+        visible_lines = available_height
+        # Clamp scroll_position within bounds
+        max_scroll = max(0, len(self.models) - visible_lines)
+        self.scroll_position = min(self.scroll_position, max_scroll)
         # define columns: model name, status, and provider/details
         table = Table(box=None, show_header=False, padding=(0, 1))
-        table.add_column("Model", style="white")
-        table.add_column("Status", no_wrap=True)
-        table.add_column("Details", style="magenta")
-         
-        visible_models = self.models[self.scroll_position:self.scroll_position + self.visible_lines]
+        # Select slice of models
+        visible_models = self.models[self.scroll_position : self.scroll_position + visible_lines]
         for model in visible_models:
             status_style = {
                 "ready": "green",
@@ -96,12 +105,17 @@ class ModelsSection:
                 Text(model.details or "", style="magenta")
             )
 
-        scroll_info = ""
-        if len(self.models) > self.visible_lines:
-            scroll_info = "\nUse [W/S] to scroll"
+        scroll_info_text = ""
+        if len(self.models) > visible_lines:
+            scroll_info_text = (
+                f"Use [W/S] to scroll ("
+                f"{self.scroll_position+1}-"
+                f"{min(self.scroll_position+visible_lines,len(self.models))}/"
+                f"{len(self.models)})"
+            )
 
         return Panel(
-            Group(table, Text(scroll_info, style="dim")),
+            Group(table, Text(scroll_info_text, style="dim")),
             title="Available Models",
             border_style="blue",
             box=box.ROUNDED
@@ -194,7 +208,7 @@ class InteractiveLayout:
         
         # Create the main sections
         self.menu = MenuSection()
-        self.models = ModelsSection()
+        self.models = ModelsSection(console=self.console)
         self.benchmarking = BenchmarkingSection()
         self.prompt = PromptSection()
         
