@@ -78,12 +78,31 @@ def handle_benchmark(args: argparse.Namespace) -> None:
         else:
             print("Discovering models for benchmarking...")
             discovered_models_list, _ = discover_models_with_status()
-
             if not discovered_models_list:
                 print("Error: Failed to discover any models.")
                 return
 
             models_to_benchmark = discovered_models_list
+
+        # Filter Models by Provider
+        if args.provider:
+            if args.provider == "lmstudio":
+                models_to_benchmark = [
+                    model for model in models_to_benchmark
+                    if model.get("family") or not model.get("name") or model.get("name") == model.get("id")
+                ]
+                print(f"Filtered for LM Studio: {len(models_to_benchmark)} models remain.")
+
+            elif args.provider == "ollama":
+                models_to_benchmark = [
+                    model for model in models_to_benchmark
+                    if model.get("name") and not model.get("family")
+                ]
+                print(f"Filtered for Ollama: {len(models_to_benchmark)} models remain.")
+
+            if not models_to_benchmark:
+                print("Error: No models matching the specified provider were found/loaded.")
+                return
 
         # Filter Models (Optional)
         if args.model_id:

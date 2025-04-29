@@ -7,6 +7,7 @@ completion requests with proper error handling and context optimization.
 
 from typing import List, Optional, Dict, Any
 import requests
+import json  # Add this import at the top if not already present
 
 from rooBroker.interfaces.base import ModelProviderClient
 from rooBroker.roo_types.discovery import (
@@ -146,7 +147,7 @@ class OllamaClient(ModelProviderClient):
         """
         # Convert messages to Ollama format
         ollama_messages = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
-        
+
         # Prepare the payload
         payload: Dict[str, Any] = {
             "model": model_id,
@@ -154,22 +155,30 @@ class OllamaClient(ModelProviderClient):
             "temperature": temperature,
             "max_tokens": max_tokens
         }
-        
+
         try:
+            # Define headers including User-Agent
+            headers = {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0'
+            }
+
             response = requests.post(
                 self.chat_endpoint,
-                json=payload,
-                timeout=60
+                headers=headers,  # Pass the defined headers
+                json=payload,  # Use json parameter for automatic Content-Type and serialization
+                timeout=60,
+                verify=False  # Disable SSL verification
             )
             response.raise_for_status()
             result = response.json()
-            
+
             # Extract the generated text from the response
             if not result.get("message", {}).get("content"):
                 raise ValueError("No content in response message")
-            
+
             return result["message"]["content"]
-            
+
         except requests.RequestException as e:
             raise ConnectionError(f"Failed to connect to Ollama: {e}")
         except Exception as e:
