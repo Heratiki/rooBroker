@@ -155,6 +155,8 @@ class LMStudioClient(ModelProviderClient):
             response = requests.post(
                 self.completions_endpoint,
                 json=payload,
+                headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'},
+                verify=False,
                 timeout=60
             )
             response.raise_for_status()

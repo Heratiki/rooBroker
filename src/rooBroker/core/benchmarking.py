@@ -36,7 +36,7 @@ benchmarks: List[Dict[str, Any]] = [
      "type": "statement",
      "difficulty": "basic",
      "prompt": "Write a Python statement to swap two variables x and y without using a temporary variable.", 
-     "system_prompt": "You are a Python expert. Provide a single line solution. Respond ONLY with the valid Python code. Do not include any explanations, introductions, or markdown formatting like ```python.",
+     "system_prompt": "You are a Python expert. Provide the Python code solution for the user's request. Please enclose the code within markdown code blocks (```python ... ```).",
      "expected": "x, y = y, x",
      "test_cases": [
          {"input": {"x": 5, "y": 10}, "expected": {"x": 10, "y": 5}},
@@ -54,7 +54,7 @@ benchmarks: List[Dict[str, Any]] = [
      "type": "function",
      "difficulty": "intermediate",
      "prompt": "Write a Python function that returns the square of a number.",
-     "system_prompt": "You are a Python programmer. Write clean, efficient code. Respond ONLY with the valid Python code. Do not include any explanations, introductions, or markdown formatting like ```python.",
+     "system_prompt": "You are a Python expert. Provide the Python code solution for the user's request. Please enclose the code within markdown code blocks (```python ... ```).",
      "expected": "def square(n):\n    return n * n",
      "test_cases": [
          {"input": {"n": 5}, "expected": 25},
@@ -74,7 +74,7 @@ benchmarks: List[Dict[str, Any]] = [
      "type": "class",
      "difficulty": "advanced",
      "prompt": "Create a Stack class implementing push, pop, and isEmpty methods using a list.",
-     "system_prompt": "You are a Python expert. Implement a complete class with proper error handling. Respond ONLY with the valid Python code. Do not include any explanations, introductions, or markdown formatting like ```python.",
+     "system_prompt": "You are a Python expert. Provide the Python code solution for the user's request. Please enclose the code within markdown code blocks (```python ... ```).",
      "expected": "class Stack:\n    def __init__(self):\n        self.items = []\n    \n    def push(self, item):\n        self.items.append(item)\n    \n    def pop(self):\n        if not self.isEmpty():\n            return self.items.pop()\n        raise IndexError('pop from empty stack')\n    \n    def isEmpty(self):\n        return len(self.items) == 0",
      "test_cases": [
          {"sequence": ["push(1)", "push(2)", "pop()"], "expected": 2},
@@ -93,7 +93,7 @@ benchmarks: List[Dict[str, Any]] = [
      "type": "algorithm",
      "difficulty": "advanced",
      "prompt": "Refactor this code to use a list comprehension:\nresult=[]\nfor x in range(10):\n    if x%2==0: result.append(x*x)",
-     "system_prompt": "You are a Python expert. Provide the most concise, readable solution. Respond ONLY with the valid Python code. Do not include any explanations, introductions, or markdown formatting like ```python.",
+     "system_prompt": "You are a Python expert. Provide the Python code solution for the user's request. Please enclose the code within markdown code blocks (```python ... ```).",
      "expected": "[x*x for x in range(10) if x%2==0]",
      "test_cases": [
          {"input": {}, "expected": [0, 4, 16, 36, 64]},
