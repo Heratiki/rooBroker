@@ -1,0 +1,22 @@
+{
+    "id": "class_implementation",
+    "name": "class_implementation",
+    "type": "class",
+    "difficulty": "advanced",
+    "prompt": "Create a Stack class implementing push, pop, and isEmpty methods using a list.",
+    "system_prompt": "You are a Python expert. Provide the Python code solution for the user's request. Please enclose the code within markdown code blocks (```python ... ```).",
+    "expected": "class Stack:\n    def __init__(self):\n        self.items = []\n    \n    def push(self, item):\n        self.items.append(item)\n    \n    def pop(self):\n        if not self.isEmpty():\n            return self.items.pop()\n        raise IndexError('pop from empty stack')\n    \n    def isEmpty(self):\n        return len(self.items) == 0",
+    "test_cases": [
+        {"sequence": ["push(1)", "push(2)", "pop()"], "expected": 2},
+        {"sequence": ["isEmpty()"], "expected": true},
+        {"sequence": ["push(1)", "isEmpty()"], "expected": false}
+    ],
+    "metrics": {
+        "documentation": true,
+        "error_handling": true,
+        "encapsulation": true
+    },
+    "temperature": 0.2,
+    "evaluation_method": "exec_call_func",
+    "tags": ["python", "advanced", "class", "data-structure"]
+}

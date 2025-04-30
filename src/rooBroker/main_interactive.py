@@ -11,7 +11,7 @@ from typing import NoReturn, Optional, List, Dict, Any, cast, Callable, Awaitabl
 from datetime import datetime, timedelta
 
 from rich.live import Live
-from rich.prompt import IntPrompt
+from rich.prompt import IntPrompt, Prompt
 from rich.console import Console
 from rich.text import Text
 
@@ -38,7 +38,7 @@ else:
 
 from rooBroker.ui.interactive_layout import InteractiveLayout, ModelInfo
 from rooBroker.core.discovery import discover_all_models, discover_models_with_status
-from rooBroker.core.benchmarking import run_standard_benchmarks
+from rooBroker.core.benchmarking import run_standard_benchmarks, load_benchmarks_from_directory
 from rooBroker.core.state import save_model_state, load_models_as_list
 from rooBroker.core.mode_management import update_room_modes
 from rooBroker.core.proxy import run_proxy_in_thread, DEFAULT_PROXY_PORT
@@ -138,19 +138,45 @@ async def benchmark_models_only() -> None:
     """Benchmark the previously discovered models."""
     global discovered_models
     global benchmark_results
-    
+
     layout.prompt.add_message("[yellow]Starting benchmarking process...[/yellow]")
     layout.prompt.set_status("Starting benchmarking...")
 
-    if not discovered_models:
-        layout.prompt.add_message("[yellow]No models discovered yet. Run discovery first (Option 1).[/yellow]")
-        layout.prompt.set_status("No models to benchmark")
+    # Load benchmarks
+    console = Console()
+    benchmarks = load_benchmarks_from_directory("./benchmarks")
+    if not benchmarks:
+        layout.prompt.add_message("[red]No benchmarks found in the specified directory.[/red]")
+        layout.prompt.set_status("No benchmarks to run")
         return
 
-    # Determine available clients based on discovery status (reuse logic from original function)
-    # We need the status dictionary again, perhaps store it globally or re-run a quick check?
-    # For now, let's assume we can determine the client based on discovered_models
-    
+    # Display benchmark options
+    console.print("[bold]Available Benchmarks:[/bold]")
+    for idx, benchmark in enumerate(benchmarks):
+        console.print(f"[{idx + 1}] {benchmark['name']} ({benchmark['type']}, {benchmark['difficulty']})")
+
+    # Prompt user for selection
+    selection = Prompt.ask(
+        "Enter the numbers of the benchmarks to run (comma-separated) or 'all' to run all",
+        default="all"
+    )
+
+    # Filter benchmarks based on user selection
+    if selection.lower() != "all":
+        try:
+            selected_indices = [int(i) - 1 for i in selection.split(",")]
+            benchmarks = [benchmarks[i] for i in selected_indices if 0 <= i < len(benchmarks)]
+        except (ValueError, IndexError):
+            layout.prompt.add_message("[red]Invalid selection. Aborting benchmarking process.[/red]")
+            layout.prompt.set_status("Invalid selection")
+            return
+
+    if not benchmarks:
+        layout.prompt.add_message("[red]No benchmarks selected to run.[/red]")
+        layout.prompt.set_status("No benchmarks to run")
+        return
+
+    # Determine available clients based on discovery status
     has_lm_studio = any(model.get("family") for model in discovered_models)
     has_ollama = any(model.get("name") and not model.get("family") for model in discovered_models)
 
@@ -169,119 +195,21 @@ async def benchmark_models_only() -> None:
     try:
         # Clear previous benchmark results if any
         benchmark_results.clear()
-        
-        # Run benchmarks (this is a blocking operation)
-        # We'll simulate progress updates for each model
-        model_count = len(discovered_models)
-        completed_models = 0
-        
-        # Use asyncio to run benchmarks in chunks while updating UI
-        for idx, model in enumerate(discovered_models):
-            model_id = model.get("id")
-            if not model_id:
-                continue
-                
-            # Get provider based on the model type
-            provider = "LM Studio"
-            if model.get("name") and not model.get("family"):
-                provider = "Ollama"
-            
-            # Update the model status to "benchmarking"
-            for ui_model in layout.models.models:
-                if ui_model.name == model_id:
-                    ui_model.status = "benchmarking"
-                    break
-            
-            # Update benchmarking status
-            start_time = datetime.now()
-            estimated_duration = timedelta(minutes=2)  # Estimated time per model
-            
-            # Show benchmarking progress
-            layout.benchmarking.current_model = model_id
-            layout.benchmarking.progress = 0.0
-            
-            # Update status in Prompt Improvement panel
-            layout.prompt.set_status(f"Benchmarking {model_id}...")
-            layout.prompt.add_message(f"Benchmarking model: {model_id}...")
-            
-            # We'll benchmark this model in the background and update progress
-            # Create a task for running the benchmark
-            # For real benchmarking, we'd need to split it into steps or use thread pool
-            model_result = None
-            
-            try:
-                # Simulate benchmarking progress since we can't easily get progress from the actual benchmark
-                progress_steps = 10
-                step = 0
-                for step in range(progress_steps + 1):
-                    progress = step / progress_steps
-                    layout.benchmarking.progress = progress
-                    
-                    # Calculate time remaining
-                    elapsed = datetime.now() - start_time
-                    if progress > 0:
-                        total_estimated = elapsed / progress
-                        remaining = total_estimated - elapsed
-                        remaining_str = f"{int(remaining.total_seconds() // 60):02d}:{int(remaining.total_seconds() % 60):02d}"
-                    else:
-                        remaining_str = "--:--"
-                        
-                    layout.benchmarking.time_remaining = remaining_str
-                    
-                    # Only do a real pause for simulation steps, not during actual benchmarking
-                    if step < progress_steps:
-                        await asyncio.sleep(0.5)  # Simulate progress
-                
-                # At this point we'd normally have benchmark results
-                # For now we run one model at a time in a blocking way
-                # In a full implementation, we would use a thread pool
-                if step == progress_steps:
-                    # In a real implementation, we'd check if we've reached the last step
-                    # and then run the actual benchmark
-                    single_model_results = await asyncio.to_thread(
-                        run_standard_benchmarks, 
-                        client, 
-                        [model],
-                        num_samples=3  # Reduced samples for faster results
-                    )
-                    
-                    if single_model_results and len(single_model_results) > 0:
-                        model_result = single_model_results[0]
-                        benchmark_results.append(model_result)
-                
-                # Update model status
-                for ui_model in layout.models.models:
-                    if ui_model.name == model_id:
-                        if model_result:
-                            # Extract the aggregated score if available
-                            agg_metrics = model_result.get("aggregated_metrics", {})
-                            score = agg_metrics.get("overall_score", 0)
-                            ui_model.status = f"score: {score:.2f}"
-                            ui_model.details = f"Provider: {provider}, Benchmarked"
-                        else:
-                            ui_model.status = "failed"
-                        break
-                
-                completed_models += 1
-                overall_progress = completed_models / model_count
-                
-                layout.prompt.add_message(f"[green]Completed benchmarking for {model_id}[/green]")
-                layout.prompt.add_message(f"Overall progress: {completed_models}/{model_count} models")
-                
-            except Exception as e:
-                layout.prompt.add_message(f"[red]Error benchmarking {model_id}: {str(e)}[/red]")
-                for ui_model in layout.models.models:
-                    if ui_model.name == model_id:
-                        ui_model.status = "failed"
-                        break
-        
-        # Reset benchmarking display when done
-        layout.benchmarking.current_model = None
-        layout.benchmarking.progress = 0.0
-        layout.benchmarking.time_remaining = None
-        
-        layout.prompt.add_message(f"[green]Benchmarking complete for {completed_models}/{model_count} models[/green]")
-        layout.prompt.set_status(f"Benchmarked {completed_models}/{model_count} models")
+
+        # Run benchmarks
+        benchmark_results.extend(
+            await asyncio.to_thread(
+                run_standard_benchmarks,
+                client,
+                discovered_models,
+                benchmarks_to_run=benchmarks,
+                num_samples=3,  # Reduced samples for faster results
+                verbose=True
+            )
+        )
+
+        layout.prompt.add_message("[green]Benchmarking process completed successfully.[/green]")
+        layout.prompt.set_status("Benchmarking completed")
 
     except Exception as e:
         layout.prompt.add_message(f"[red]Error during benchmarking: {str(e)}[/red]")

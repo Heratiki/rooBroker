@@ -5,7 +5,9 @@ from .benchmarking import (
     CategoryResults,
     BenchmarkSummary,
     MetricResult,
-    TestResult
+    TestResult,
+    BenchmarkTask,
+    TestCase
 )
 from .models import (
     ModelState,
@@ -40,6 +42,8 @@ __all__ = [
     'BenchmarkSummary',
     'MetricResult',
     'TestResult',
+    'BenchmarkTask',
+    'TestCase',
     
     # Model types
     'ModelState',

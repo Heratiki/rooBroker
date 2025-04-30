@@ -5,10 +5,12 @@ Command-line interface entry point for rooBroker.
 import argparse
 import sys
 from typing import List, NoReturn, Optional, cast, Dict, Any
+from pathlib import Path
 
 from rooBroker.core import run_standard_benchmarks
 from rooBroker.core.discovery import discover_models_with_status
 from rooBroker.core.state import load_models_as_list, save_model_state
+from rooBroker.core.benchmarking import load_benchmarks_from_directory
 from rooBroker.interfaces.lmstudio.client import LMStudioClient
 from rooBroker.interfaces.ollama.client import OllamaClient
 from rooBroker.ui.common_formatters import pretty_print_benchmarks, pretty_print_models
@@ -46,6 +48,33 @@ def handle_discover(args: argparse.Namespace) -> None:
 
 def handle_benchmark(args: argparse.Namespace) -> None:
     try:
+        # Load benchmarks from the specified directory
+        benchmarks = load_benchmarks_from_directory(args.benchmark_dir)
+
+        # Filter benchmarks based on provided arguments
+        if args.task_ids:
+            benchmarks = [b for b in benchmarks if b['id'] in args.task_ids]
+        if args.tags:
+            benchmarks = [b for b in benchmarks if any(tag in b['tags'] for tag in args.tags)]
+        if args.difficulty:
+            benchmarks = [b for b in benchmarks if b['difficulty'] == args.difficulty]
+        if args.type:
+            benchmarks = [b for b in benchmarks if b['type'] == args.type]
+
+        if not benchmarks:
+            print("No benchmarks match the provided filters.")
+            return
+
+        # Instantiate Client
+        client: Optional[ModelProviderClient] = None
+        if args.provider == "lmstudio":
+            client = LMStudioClient()
+        elif args.provider == "ollama":
+            client = OllamaClient()
+        else:
+            print("Error: --provider ('lmstudio' or 'ollama') is required for benchmarking.")
+            return
+
         # Initialize models_to_benchmark
         models_to_benchmark: List[DiscoveredModel] = []
 
@@ -84,58 +113,14 @@ def handle_benchmark(args: argparse.Namespace) -> None:
 
             models_to_benchmark = discovered_models_list
 
-        # Filter Models by Provider
-        if args.provider:
-            if args.provider == "lmstudio":
-                models_to_benchmark = [
-                    model for model in models_to_benchmark
-                    if model.get("family") or not model.get("name") or model.get("name") == model.get("id")
-                ]
-                print(f"Filtered for LM Studio: {len(models_to_benchmark)} models remain.")
-
-            elif args.provider == "ollama":
-                models_to_benchmark = [
-                    model for model in models_to_benchmark
-                    if model.get("name") and not model.get("family")
-                ]
-                print(f"Filtered for Ollama: {len(models_to_benchmark)} models remain.")
-
-            if not models_to_benchmark:
-                print("Error: No models matching the specified provider were found/loaded.")
-                return
-
-        # Filter Models (Optional)
-        if args.model_id:
-            models_to_benchmark = [
-                model for model in models_to_benchmark if model.get("id") in args.model_id
-            ]
-            if not models_to_benchmark:
-                print("Error: Specified model IDs not found.")
-                return
-
-        # Check if Models Exist
-        if not models_to_benchmark:
-            print("Error: No models selected for benchmarking.")
-            return
-
-        # Instantiate Client
-        client: Optional[ModelProviderClient] = None
-        if args.provider == "lmstudio":
-            client = LMStudioClient()
-        elif args.provider == "ollama":
-            client = OllamaClient()
-        else:
-            print("Error: --provider ('lmstudio' or 'ollama') is required for benchmarking.")
-            return
-
         # Run Benchmarks
         print("Starting benchmarks...")
-        kwargs = {}
-        if args.samples is not None:
-            kwargs["num_samples"] = args.samples
-
         benchmark_results = run_standard_benchmarks(
-            client=client, models_to_benchmark=models_to_benchmark, verbose=args.verbose, **kwargs
+            client=client,
+            models_to_benchmark=models_to_benchmark,
+            benchmarks_to_run=benchmarks,
+            num_samples=args.samples or 20,
+            verbose=args.verbose
         )
 
         # Display Results
@@ -234,6 +219,32 @@ def cli_main(argv: List[str] | None = None) -> int:
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose output during benchmarking to see individual task details and responses."
+    )
+    benchmark_parser.add_argument(
+        "--benchmark-dir",
+        type=str,
+        default="benchmarks",
+        help="Directory to load benchmarks from (default: 'benchmarks')."
+    )
+    benchmark_parser.add_argument(
+        "--task-ids",
+        nargs="+",
+        help="Filter benchmarks by task IDs."
+    )
+    benchmark_parser.add_argument(
+        "--tags",
+        nargs="+",
+        help="Filter benchmarks by tags."
+    )
+    benchmark_parser.add_argument(
+        "--difficulty",
+        type=str,
+        help="Filter benchmarks by difficulty level."
+    )
+    benchmark_parser.add_argument(
+        "--type",
+        type=str,
+        help="Filter benchmarks by type."
     )
     benchmark_parser.set_defaults(func=handle_benchmark)
 

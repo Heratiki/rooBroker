@@ -1,0 +1,23 @@
+{
+    "id": "moderate",
+    "name": "moderate",
+    "type": "function",
+    "difficulty": "intermediate",
+    "prompt": "Write a Python function that returns the square of a number.",
+    "system_prompt": "You are a Python expert. Provide the Python code solution for the user's request. Please enclose the code within markdown code blocks (```python ... ```).",
+    "expected": "def square(n):\n    return n * n",
+    "test_cases": [
+        {"input": {"n": 5}, "expected": 25},
+        {"input": {"n": -2}, "expected": 4},
+        {"input": {"n": 0}, "expected": 0},
+        {"input": {"n": 10}, "expected": 100}
+    ],
+    "metrics": {
+        "documentation": true,
+        "type_hints": true,
+        "error_handling": false
+    },
+    "temperature": 0.2,
+    "evaluation_method": "exec_call_func",
+    "tags": ["python", "intermediate", "function", "math"]
+}

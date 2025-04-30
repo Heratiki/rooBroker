@@ -10,6 +10,7 @@ evaluation of model capabilities.
 """
 
 from typing import List, TypedDict, Literal, Optional, Dict, Any
+from pydantic import BaseModel, Field
 
 TaskType = Literal[
     "statement",    # Single line or statement-level code generation
@@ -76,3 +77,23 @@ class BenchmarkSummary(TypedDict):
     category_scores: Dict[TaskType, float]
     difficulty_scores: Dict[DifficultyLevel, float]
     results: CategoryResults
+
+class TestCase(BaseModel):
+    input: Dict[str, Any]
+    expected: Any
+
+class BenchmarkTask(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    type: str
+    difficulty: str
+    tags: List[str] = Field(default_factory=list)
+    system_prompt: str
+    user_prompt: str
+    evaluation_method: str
+    expected_response_variants: Optional[List[str]] = None
+    test_cases: Optional[List[TestCase]] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    custom_evaluation_script: Optional[str] = None
