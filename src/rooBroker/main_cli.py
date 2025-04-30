@@ -7,7 +7,7 @@ import sys
 from typing import List, NoReturn, Optional, cast, Dict, Any
 from pathlib import Path
 
-from rooBroker.core import run_standard_benchmarks
+from rooBroker.core.benchmarking import run_standard_benchmarks
 from rooBroker.core.discovery import discover_models_with_status
 from rooBroker.core.state import load_models_as_list, save_model_state
 from rooBroker.core.benchmarking import load_benchmarks_from_directory
@@ -112,6 +112,18 @@ def handle_benchmark(args: argparse.Namespace) -> None:
                 return
 
             models_to_benchmark = discovered_models_list
+
+        if args.model_id:
+            print(f"Filtering models to benchmark based on provided IDs: {args.model_id}")
+            # Ensure comparison works even if model['id'] is not a string
+            models_to_benchmark = [
+                model for model in models_to_benchmark
+                if str(model.get("id")) in args.model_id
+            ]
+            if not models_to_benchmark:
+                print("Error: None of the specified model IDs were found.")
+                return
+            print(f"Models remaining after filtering: {[m.get('id') for m in models_to_benchmark]}")
 
         # Run Benchmarks
         print("Starting benchmarks...")

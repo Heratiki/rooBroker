@@ -14,6 +14,8 @@ from pathlib import Path
 import json
 from pydantic import ValidationError
 from rich.console import Console
+import textwrap
+from textwrap import dedent
 
 from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage
 from rooBroker.interfaces.base import ModelProviderClient
@@ -53,6 +55,9 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
     response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
 
     try:
+        print(f"DEBUG: Evaluating benchmark: {bench.get('name')}, Method: {bench.get('evaluation_method')}")
+        print(f"DEBUG: Bench data: {bench}")
+
         # Extract code block or use raw response
         code_block_pattern = r"```(?:python)?\s*([\s\S]*?)\s*```"
         code_match = re.search(code_block_pattern, response)
@@ -64,22 +69,33 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
         # Evaluation logic based on evaluation_method
         if bench["evaluation_method"] == "string_contains":
             expected = bench.get("expected") or bench.get("expected_response_variants", [None])[0]
+            print(f"DEBUG: String Contains - Expected Type: {type(expected)}, Expected Value: {repr(expected)}")
+            print(f"DEBUG: String Contains - Response Type: {type(response)}, Response Value: {repr(response)}")
+            # The line below is where the check happens
+            print("DEBUG: String Contains - About to perform 'expected in response'")
             results["pass_all"] = expected in response
-            results["test_pass_rate"] = 1.0 if results["pass_all"] else 0.0
+            print("DEBUG: String Contains - Check completed")
 
         elif bench["evaluation_method"] == "exec_check_state":
             test_results = []
             for test_case in bench["test_cases"]:
+                # Safely handle optional 'expected' values
+                expected_keys = list(test_case["expected"].keys()) if isinstance(test_case.get("expected"), dict) else []
+
                 local_env = test_case["input"].copy()
-                func_def_str = f"""
+                # Indent the code to be executed
+                indented_code = '\n'.join([' ' * 4 + line for line in code_to_execute.splitlines()])
+
+                func_def_str = dedent(f"""
                 def temp_func():
-                    {code_to_execute}
-                    return {test_case['expected']}
-                """
+                    {indented_code}
+                    # Return the dictionary of expected state variables
+                    return {{k: v for k, v in locals().items() if k in {expected_keys}}}
+                """)
                 try:
                     exec(func_def_str, local_env)
                     result = local_env["temp_func"]()
-                    test_results.append(result == test_case["expected"])
+                    test_results.append(result == test_case.get("expected", {}))
                 except Exception as e:
                     test_results.append(False)
                     if verbose:
@@ -146,6 +162,7 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
         if verbose:
             print("General evaluation error:", e)
 
+    print(f"DEBUG: Evaluation Results before return: {results}")
     return results
 
 def calculate_pass_at_k(n_samples: int, n_correct: int, k: int) -> float:
@@ -250,6 +267,8 @@ def run_standard_benchmarks(
                 print(f"\nRunning benchmark: {bench['name']}")
                 print(f"Type: {bench['type']}, Difficulty: {bench['difficulty']}")
 
+            consecutive_failures = 0  # Track consecutive failures for the same task
+
             for sample in range(num_samples):
                 if verbose:
                     print(f"\nGenerating sample {sample + 1}/{num_samples}")
@@ -295,10 +314,25 @@ def run_standard_benchmarks(
                         **eval_result
                     })
 
-                except Exception as e:
-                    if verbose:
-                        print(f"Failed to run benchmark: {str(e)}")
+                    # Reset consecutive failures on success
+                    consecutive_failures = 0
+
+                except (TimeoutError, ConnectionError) as network_error:
+                    consecutive_failures += 1
                     model_result["failures"] += 1
+                    if verbose:
+                        print(f"Network error during benchmark: {network_error}")
+
+                    # Break the loop if too many consecutive failures occur
+                    if consecutive_failures >= 3:
+                        if verbose:
+                            print(f"Too many consecutive failures for benchmark: {bench['name']}. Skipping remaining samples.")
+                        break
+
+                except Exception as e:
+                    model_result["failures"] += 1
+                    if verbose:
+                        print(f"General error during benchmark: {e}")
 
         if verbose:
             print(f"\nCompleted benchmark for model: {model_id}")

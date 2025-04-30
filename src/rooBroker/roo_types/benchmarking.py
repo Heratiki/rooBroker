@@ -79,8 +79,8 @@ class BenchmarkSummary(TypedDict):
     results: CategoryResults
 
 class TestCase(BaseModel):
-    input: Dict[str, Any]
-    expected: Any
+    input: Optional[Dict[str, Any]] = None
+    expected: Optional[Any] = None
 
 class BenchmarkTask(BaseModel):
     id: str
@@ -90,7 +90,7 @@ class BenchmarkTask(BaseModel):
     difficulty: str
     tags: List[str] = Field(default_factory=list)
     system_prompt: str
-    user_prompt: str
+    prompt: str
     evaluation_method: str
     expected_response_variants: Optional[List[str]] = None
     test_cases: Optional[List[TestCase]] = None
