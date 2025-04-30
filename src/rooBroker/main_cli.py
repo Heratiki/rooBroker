@@ -7,10 +7,9 @@ import sys
 from typing import List, NoReturn, Optional, cast, Dict, Any
 from pathlib import Path
 
-from rooBroker.core.benchmarking import run_standard_benchmarks
+from rooBroker.core.benchmarking import run_standard_benchmarks, load_benchmarks_from_directory
 from rooBroker.core.discovery import discover_models_with_status
 from rooBroker.core.state import load_models_as_list, save_model_state
-from rooBroker.core.benchmarking import load_benchmarks_from_directory
 from rooBroker.interfaces.lmstudio.client import LMStudioClient
 from rooBroker.interfaces.ollama.client import OllamaClient
 from rooBroker.ui.common_formatters import pretty_print_benchmarks, pretty_print_models

@@ -68,13 +68,37 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
 
         # Evaluation logic based on evaluation_method
         if bench["evaluation_method"] == "string_contains":
-            expected = bench.get("expected") or bench.get("expected_response_variants", [None])[0]
+            print(f"DEBUG: String Contains - Starting evaluation for {bench.get('name')}")
+            
+            # Get the primary expected value
+            expected = bench.get("expected")
+            
+            # If no primary expected value, try to get from variants
+            if expected is None:
+                variants = bench.get("expected_response_variants")
+                if variants and isinstance(variants, list) and len(variants) > 0:
+                    expected = variants[0]
+            
+            # If we still don't have an expected value, record error
+            if expected is None:
+                results["error"] = "No expected value found in benchmark definition"
+                results["pass_all"] = False
+                results["test_pass_rate"] = 0.0
+                if verbose:
+                    print("Error: No expected value found in benchmark definition")
+                return results
+            
             print(f"DEBUG: String Contains - Expected Type: {type(expected)}, Expected Value: {repr(expected)}")
             print(f"DEBUG: String Contains - Response Type: {type(response)}, Response Value: {repr(response)}")
-            # The line below is where the check happens
             print("DEBUG: String Contains - About to perform 'expected in response'")
-            results["pass_all"] = expected in response
-            print("DEBUG: String Contains - Check completed")
+            
+            # Ensure both expected and response are strings before comparison
+            expected_str = str(expected)
+            response_str = str(response)
+            
+            results["pass_all"] = expected_str in response_str
+            results["test_pass_rate"] = 1.0 if results["pass_all"] else 0.0
+            print(f"DEBUG: String Contains - Check completed. Result: {results['pass_all']}")
 
         elif bench["evaluation_method"] == "exec_check_state":
             test_results = []
