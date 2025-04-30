@@ -36,7 +36,7 @@ benchmarks: List[Dict[str, Any]] = [
      "type": "statement",
      "difficulty": "basic",
      "prompt": "Write a Python statement to swap two variables x and y without using a temporary variable.", 
-     "system_prompt": "You are a Python expert. Provide a single line solution.",
+     "system_prompt": "You are a Python expert. Provide a single line solution. Respond ONLY with the valid Python code. Do not include any explanations, introductions, or markdown formatting like ```python.",
      "expected": "x, y = y, x",
      "test_cases": [
          {"input": {"x": 5, "y": 10}, "expected": {"x": 10, "y": 5}},
@@ -54,7 +54,7 @@ benchmarks: List[Dict[str, Any]] = [
      "type": "function",
      "difficulty": "intermediate",
      "prompt": "Write a Python function that returns the square of a number.",
-     "system_prompt": "You are a Python programmer. Write clean, efficient code.",
+     "system_prompt": "You are a Python programmer. Write clean, efficient code. Respond ONLY with the valid Python code. Do not include any explanations, introductions, or markdown formatting like ```python.",
      "expected": "def square(n):\n    return n * n",
      "test_cases": [
          {"input": {"n": 5}, "expected": 25},
@@ -74,7 +74,7 @@ benchmarks: List[Dict[str, Any]] = [
      "type": "class",
      "difficulty": "advanced",
      "prompt": "Create a Stack class implementing push, pop, and isEmpty methods using a list.",
-     "system_prompt": "You are a Python expert. Implement a complete class with proper error handling.",
+     "system_prompt": "You are a Python expert. Implement a complete class with proper error handling. Respond ONLY with the valid Python code. Do not include any explanations, introductions, or markdown formatting like ```python.",
      "expected": "class Stack:\n    def __init__(self):\n        self.items = []\n    \n    def push(self, item):\n        self.items.append(item)\n    \n    def pop(self):\n        if not self.isEmpty():\n            return self.items.pop()\n        raise IndexError('pop from empty stack')\n    \n    def isEmpty(self):\n        return len(self.items) == 0",
      "test_cases": [
          {"sequence": ["push(1)", "push(2)", "pop()"], "expected": 2},
@@ -93,7 +93,7 @@ benchmarks: List[Dict[str, Any]] = [
      "type": "algorithm",
      "difficulty": "advanced",
      "prompt": "Refactor this code to use a list comprehension:\nresult=[]\nfor x in range(10):\n    if x%2==0: result.append(x*x)",
-     "system_prompt": "You are a Python expert. Provide the most concise, readable solution.",
+     "system_prompt": "You are a Python expert. Provide the most concise, readable solution. Respond ONLY with the valid Python code. Do not include any explanations, introductions, or markdown formatting like ```python.",
      "expected": "[x*x for x in range(10) if x%2==0]",
      "test_cases": [
          {"input": {}, "expected": [0, 4, 16, 36, 64]},
@@ -168,75 +168,97 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                 for i, test_case in enumerate(bench["test_cases"], 1):
                     if verbose:
                         print(f"\nRunning test case {i}/{len(bench['test_cases'])}...")
-                    try:
-                        if "sequence" in test_case:
-                            # For class testing, create instance and run sequence
-                            class_name = next((name for name, obj in local_env.items() 
-                                         if isinstance(obj, type)), None)
-                            if class_name:
-                                instance = local_env[class_name]()
-                                result = None
-                                for op in test_case["sequence"]:
-                                    if verbose:
-                                        print(f"Executing operation: {op}")
-                                    result = eval(f"instance.{op}")
-                                test_pass = result == test_case["expected"]
-                                test_results.append(test_pass)
+
+                    # Handle context benchmark type
+                    if bench["type"] == "context":
+                        response_stripped = response.strip()
+                        test_pass = str(test_case["expected"]) in response_stripped
+                        test_results.append(test_pass)
+                        if verbose:
+                            print(f"Response: {response_stripped}")
+                            print(f"Expected: {test_case['expected']}")
+                            print(f"Test passed: {test_pass}")
+                        continue
+
+                    if "sequence" in test_case:
+                        # For class testing, create instance and run sequence
+                        class_name = next((name for name, obj in local_env.items() 
+                                     if isinstance(obj, type)), None)
+                        if class_name:
+                            instance = local_env[class_name]()
+                            result = None
+                            for op in test_case["sequence"]:
                                 if verbose:
-                                    print(f"Result: {result}")
-                                    print(f"Expected: {test_case['expected']}")
-                                    print(f"Test passed: {test_pass}")
-                            else:
-                                test_results.append(False)
-                                results["error"] = "No class definition found"
-                                if verbose:
-                                    print("Error: No class definition found")
-                        elif "verification" in test_case:
-                            # For structural/type verification
-                            if verbose:
-                                print(f"Running verification: {test_case['verification']}")
-                            verification_context = {"response": code_to_execute, **local_env}
-                            test_pass = eval(test_case["verification"], verification_context)
+                                    print(f"Executing operation: {op}")
+                                result = eval(f"instance.{op}")
+                            test_pass = result == test_case["expected"]
                             test_results.append(test_pass)
                             if verbose:
+                                print(f"Result: {result}")
+                                print(f"Expected: {test_case['expected']}")
                                 print(f"Test passed: {test_pass}")
                         else:
-                            # For function testing
-                            func_name = code_to_execute.split("def ")[1].split("(")[0] if "def " in code_to_execute else None
-                            if func_name and func_name in local_env:
-                                if verbose:
-                                    print(f"Testing function {func_name} with input: {test_case['input']}")
-                                result = local_env[func_name](**test_case["input"])
-                                test_pass = result == test_case["expected"]
-                                test_results.append(test_pass)
-                                if verbose:
-                                    print(f"Result: {result}")
-                                    print(f"Expected: {test_case['expected']}")
-                                    print(f"Test passed: {test_pass}")
-                            else:
-                                # For single statement evaluation
-                                if verbose:
-                                    print(f"Evaluating statement with input: {test_case['input']}")
-                                result = eval(code_to_execute, {"__builtins__": __builtins__}, 
-                                        {**test_case["input"], **local_env})
-                                test_pass = result == test_case["expected"]
-                                test_results.append(test_pass)
-                                if verbose:
-                                    print(f"Result: {result}")
-                                    print(f"Expected: {test_case['expected']}")
-                                    print(f"Test passed: {test_pass}")
-                    except Exception as e:
-                        test_results.append(False)
-                        results["error"] = f"Test case execution error: {str(e)}"
+                            test_results.append(False)
+                            results["error"] = "No class definition found"
+                            if verbose:
+                                print("Error: No class definition found")
+                    elif "verification" in test_case:
+                        # For structural/type verification
                         if verbose:
-                            print(f"Test case execution error: {str(e)}")
-                
+                            print(f"Running verification: {test_case['verification']}")
+                        verification_context = {"response": code_to_execute, **local_env}
+                        test_pass = eval(test_case["verification"], verification_context)
+                        test_results.append(test_pass)
+                        if verbose:
+                            print(f"Test passed: {test_pass}")
+                    else:
+                        # For function testing
+                        func_name = code_to_execute.split("def ")[1].split("(")[0] if "def " in code_to_execute else None
+                        if func_name and func_name in local_env:
+                            if verbose:
+                                print(f"Testing function {func_name} with input: {test_case['input']}")
+                            result = local_env[func_name](**test_case["input"])
+                            test_pass = result == test_case["expected"]
+                            test_results.append(test_pass)
+                            if verbose:
+                                print(f"Result: {result}")
+                                print(f"Expected: {test_case['expected']}")
+                                print(f"Test passed: {test_pass}")
+                        else:
+                            # For single statement evaluation using function-wrapping
+                            if verbose:
+                                print(f"Evaluating statement with input: {test_case['input']}")
+
+                            temp_func_name = f"temp_exec_func_{i}"
+                            func_def_str = f"""
+def {temp_func_name}({', '.join(test_case['input'].keys())}):
+    {code_to_execute}
+    return {{ {', '.join(f'\'{key}\': {key}' for key in test_case['expected'].keys())} }}
+"""
+
+                            if verbose:
+                                print("Generated function definition:")
+                                print(func_def_str)
+                                
+                            try:
+                                exec(func_def_str, local_env)
+                                result_dict = local_env[temp_func_name](**test_case['input'])
+                                test_pass = result_dict == test_case['expected']
+                                test_results.append(test_pass)
+
+                                if verbose:
+                                    print(f"Result: {result_dict}")
+                                    print(f"Expected: {test_case['expected']}")
+                                    print(f"Test passed: {test_pass}")
+                            except Exception as e:
+                                test_results.append(False)
+                                if verbose:
+                                    print(f"Execution error: {str(e)}")
             except Exception as e:
-                results["error"] = f"Code execution error: {str(e)}"
+                results["error"] = f"Execution error: {str(e)}"
                 if verbose:
-                    print(f"Code execution error: {str(e)}")
-                return results
-            
+                    print(f"Execution error: {str(e)}")
+
             results["test_results"] = test_results
             results["test_pass_rate"] = calculate_test_pass_rate(test_results)
             results["pass_all"] = all(test_results)

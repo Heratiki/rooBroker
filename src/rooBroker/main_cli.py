@@ -6,7 +6,7 @@ import argparse
 import sys
 from typing import List, NoReturn, Optional, cast, Dict, Any
 
-from rooBroker.core.benchmarking import run_standard_benchmarks
+from rooBroker.core import run_standard_benchmarks
 from rooBroker.core.discovery import discover_models_with_status
 from rooBroker.core.state import load_models_as_list, save_model_state
 from rooBroker.interfaces.lmstudio.client import LMStudioClient
