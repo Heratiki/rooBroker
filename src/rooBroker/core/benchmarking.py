@@ -13,7 +13,9 @@ import re
 import inspect
 from pydantic import ValidationError
 from rich.console import Console
+from rich.progress import Progress
 from textwrap import dedent
+import time
 
 from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage
 from rooBroker.interfaces.base import ModelProviderClient
@@ -303,6 +305,7 @@ def run_standard_benchmarks(
     client: ModelProviderClient,
     models_to_benchmark: List[DiscoveredModel],
     benchmarks_to_run: List[Dict[str, Any]],
+    progress: Progress,  # Progress object for tracking (required)
     num_samples: int = 20,  # Number of samples to generate per task for pass@k
     verbose: bool = False  # Enable verbose output
 ) -> List[Dict[str, Any]]:
@@ -316,6 +319,7 @@ def run_standard_benchmarks(
         client: The model provider client to use for completions
         models_to_benchmark: List of models to benchmark
         benchmarks_to_run: List of benchmark tasks to execute
+        progress: Progress object for tracking progress
         num_samples: Number of samples to generate per task for pass@k calculation
         verbose: Enable verbose output during benchmarking
         
@@ -324,18 +328,23 @@ def run_standard_benchmarks(
             metrics like test pass rate and pass@k scores
     """
     results: List[Dict[str, Any]] = []
+    total_benchmarks = len(models_to_benchmark) * len(benchmarks_to_run)
+    
+    # Add overall progress task
+    overall_task = progress.add_task(
+        "[cyan]Overall Progress",
+        total=total_benchmarks * num_samples
+    )
 
     for model in models_to_benchmark:
-        model_id: str = model["id"]
+        model_id = str(model["id"])  # Ensure model_id is a string
+        provider_name = client.__class__.__name__.replace('Client', '')
 
         # Skip embedding models
         if "embed" in model_id.lower() or "embedding" in model_id.lower():
             if verbose:
                 print(f"Skipping embedding model: {model_id}")
             continue
-
-        if verbose:
-            print(f"\nStarting benchmark for model: {model_id}")
 
         model_result = {
             "model_id": model_id,
@@ -344,83 +353,69 @@ def run_standard_benchmarks(
             "failures": 0
         }
 
-        # Run each benchmark multiple times for pass@k calculation
+        # Add progress task for the model
+        model_task = progress.add_task(
+            f"[blue]{provider_name} - Model: {model_id}",
+            total=len(benchmarks_to_run)
+        )
+
         for bench in benchmarks_to_run:
-            if verbose:
-                print(f"\nRunning benchmark: {bench['name']}")
-                print(f"Type: {bench['type']}, Difficulty: {bench['difficulty']}")
+            task_desc = f"{bench['name']} ({bench['difficulty']})"
+            bench_task = progress.add_task(
+                f"[green]{task_desc}",
+                total=num_samples
+            )
 
-            consecutive_failures = 0  # Track consecutive failures for the same task
+            try:
+                bench_result = {
+                    "benchmark_id": bench["id"],
+                    "name": bench["name"],
+                    "type": bench["type"],
+                    "difficulty": bench["difficulty"],
+                    "samples": []
+                }
 
-            for sample in range(num_samples):
-                if verbose:
-                    print(f"\nGenerating sample {sample + 1}/{num_samples}")
-
-                try:
-                    # Construct messages for the model
+                # Run the benchmark num_samples times
+                for sample_num in range(num_samples):
+                    # Construct messages for the client
                     messages = [
-                        {"role": "system", "content": bench["system_prompt"]},
-                        {"role": "user", "content": bench["prompt"]}
+                        ChatMessage(role="system", content=bench.get("system_prompt", "You are a helpful coding assistant.")),
+                        ChatMessage(role="user", content=bench["prompt"])
                     ]
-
-                    if verbose:
-                        print("Sending request to model:")
-                        print(f"System prompt: {bench['system_prompt']}")
-                        print(f"User prompt: {bench['prompt']}")
-
-                    # Get completion from the model
-                    response = client.run_completion(
+                    
+                    # Execute the benchmark by calling the client
+                    response_data: str = client.run_completion(
                         model_id=model_id,
-                        messages=cast(List[ChatMessage], messages),
-                        temperature=bench.get("temperature", 0.2)
+                        messages=messages,
+                        max_tokens=bench.get("max_tokens", 1024),  # Use benchmark-specific or default max_tokens
+                        temperature=bench.get("temperature", 0.7) # Use benchmark-specific or default temperature
                     )
-
-                    if verbose:
-                        print("\nReceived response:")
-                        print(response)
-
+                    
+                    # The response is directly the content string
+                    response_content = response_data
+                    
                     # Evaluate the response
-                    eval_result = evaluate_response(response, bench, verbose)
-
-                    if verbose:
-                        print("\nEvaluation results:")
-                        print(f"Pass all tests: {eval_result['pass_all']}")
-                        print(f"Test pass rate: {eval_result['test_pass_rate']}")
-                        if eval_result['error']:
-                            print(f"Error: {eval_result['error']}")
-
-                    model_result["task_results"].append({
-                        "benchmark": bench["name"],
-                        "type": bench["type"],
-                        "difficulty": bench["difficulty"],
-                        "sample_index": sample,
-                        **eval_result
+                    evaluation = evaluate_response(response_content, bench, verbose)
+                    
+                    # Store sample result
+                    bench_result["samples"].append({
+                        "sample_num": sample_num + 1,
+                        "response": response_content,
+                        "evaluation": evaluation
                     })
+                    
+                    # Update progress
+                    progress.update(bench_task, advance=1)
+                    progress.update(overall_task, advance=1)
 
-                    # Reset consecutive failures on success
-                    consecutive_failures = 0
+                model_result["task_results"].append(bench_result)
+                
+            except Exception as e:
+                if verbose:
+                    print(f"Error in benchmark {bench['name']}: {str(e)}")
+                model_result["failures"] += 1
 
-                except (TimeoutError, ConnectionError) as network_error:
-                    consecutive_failures += 1
-                    model_result["failures"] += 1
-                    if verbose:
-                        print(f"Network error during benchmark: {network_error}")
-
-                    # Break the loop if too many consecutive failures occur
-                    if consecutive_failures >= 3:
-                        if verbose:
-                            print(f"Too many consecutive failures for benchmark: {bench['name']}. Skipping remaining samples.")
-                        break
-
-                except Exception as e:
-                    model_result["failures"] += 1
-                    if verbose:
-                        print(f"General error during benchmark: {e}")
-
-        if verbose:
-            print(f"\nCompleted benchmark for model: {model_id}")
-            print(f"Total tasks completed: {len(model_result['task_results'])}")
-            print(f"Failures: {model_result['failures']}")
+            progress.update(model_task, advance=1)
 
         results.append(model_result)
 

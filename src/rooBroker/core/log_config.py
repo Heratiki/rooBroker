@@ -1,5 +1,6 @@
 import logging
 import os
+from logging.handlers import RotatingFileHandler
 
 # Define log file paths
 LOG_DIR = os.path.join(os.path.dirname(__file__), '../../logs')
@@ -11,11 +12,11 @@ DEBUG_LOG_FILE = os.path.join(LOG_DIR, 'rooBroker_debug.log')
 logger = logging.getLogger('rooBroker')
 logger.setLevel(logging.DEBUG)
 
-# Create file handlers
-info_handler = logging.FileHandler(INFO_LOG_FILE)
+# Create file handlers with log rotation
+info_handler = RotatingFileHandler(INFO_LOG_FILE, maxBytes=5*1024*1024, backupCount=9, mode='w')
 info_handler.setLevel(logging.INFO)
 
-debug_handler = logging.FileHandler(DEBUG_LOG_FILE)
+debug_handler = RotatingFileHandler(DEBUG_LOG_FILE, maxBytes=5*1024*1024, backupCount=9, mode='w')
 debug_handler.setLevel(logging.DEBUG)
 
 # Create a console handler

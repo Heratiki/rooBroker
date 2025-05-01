@@ -6,6 +6,7 @@ import argparse
 import sys
 from typing import List, NoReturn, Optional, cast, Dict, Any
 from pathlib import Path
+from rich.progress import Progress, TextColumn, BarColumn, MofNCompleteColumn, TimeRemainingColumn
 
 from rooBroker.core.benchmarking import run_standard_benchmarks, load_benchmarks_from_directory
 from rooBroker.core.discovery import discover_models_with_status
@@ -87,91 +88,69 @@ def handle_benchmark(args: argparse.Namespace) -> None:
             temporary_list = []
             for loaded_model in loaded_models:
                 model_data = {}
-                id = loaded_model.get("model_id") or loaded_model.get("id")
-                if id is None:
+                model_id = loaded_model.get("model_id") or loaded_model.get("id")
+                if model_id is None:
                     continue
-                model_data["id"] = id
-
-                # Extract additional keys if they exist
-                for key in ["name", "family", "context_window", "version", "created"]:
-                    model_data[key] = loaded_model.get(key) or loaded_model.get("context_length") if key == "context_window" else None
-
+                model_id = str(model_id).strip("[]'\"")  # Clean the string representation
+                model_data["id"] = model_id
+                model_data["name"] = loaded_model.get("name", "Unknown")
                 temporary_list.append(model_data)
 
             models_to_benchmark = temporary_list
-
         else:
-            print("Discovering models for benchmarking...")
-            discovered_models_list, _ = discover_models_with_status()
-            if not discovered_models_list:
-                print("Error: Failed to discover any models.")
-                return
+            # If model_id is provided, create a single model entry
+            if args.model_id:
+                model_id = str(args.model_id).strip("[]'\"")  # Clean the string representation
+                models_to_benchmark = [{"id": model_id, "name": model_id}]
 
-            models_to_benchmark = discovered_models_list
+        if not models_to_benchmark:
+            print("No models selected for benchmarking.")
+            return
 
-        if args.model_id:
-            print(f"Filtering models to benchmark based on provided IDs: {args.model_id}")
-            # Ensure comparison works even if model['id'] is not a string
-            models_to_benchmark = [
-                model for model in models_to_benchmark
-                if str(model.get("id")) in args.model_id
-            ]
-            if not models_to_benchmark:
-                print("Error: None of the specified model IDs were found.")
-                return
-            print(f"Models remaining after filtering: {[m.get('id') for m in models_to_benchmark]}")
+        # Progress setup
+        with Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeRemainingColumn()
+        ) as progress:
+            benchmark_results = run_standard_benchmarks(
+                client=client,
+                models_to_benchmark=models_to_benchmark,
+                benchmarks_to_run=benchmarks,
+                progress=progress,
+                num_samples=args.samples if args.samples else 20
+            )
 
-        # Filter models based on the specified provider when no model IDs are provided
-        if args.provider and not args.model_id:
-            print(f"Filtering models to benchmark based on provider: {args.provider}")
-            # Ensure the provider field exists and matches the specified provider (case-insensitive)
-            models_to_benchmark = [
-                model for model in models_to_benchmark
-                if model.get("provider", "").strip().lower() == args.provider.strip().lower()
-            ]
-            if not models_to_benchmark:
-                print(f"Error: No models found for provider '{args.provider}'.")
-                return
+            # Process benchmark results to calculate average test pass rates
+            for result in benchmark_results:
+                task_results = result.get("task_results", [])
+                avg_scores = {
+                    "avg_score_statement": 0.0,
+                    "avg_score_function": 0.0,
+                    "avg_score_class": 0.0,
+                    "avg_score_algorithm": 0.0,
+                    "avg_score_context": 0.0
+                }
+                
+                # Group task results by type and calculate averages
+                type_scores = {key: [] for key in avg_scores.keys()}
+                for task in task_results:
+                    task_type = task.get("type")
+                    test_pass_rate = task.get("test_pass_rate", 0.0)
+                    if task_type and f"avg_score_{task_type}" in type_scores:
+                        type_scores[f"avg_score_{task_type}"].append(test_pass_rate)
+                
+                for key, scores in type_scores.items():
+                    avg_scores[key] = sum(scores) / len(scores) if scores else 0.0
+                
+                result.update(avg_scores)
 
-        # Run Benchmarks
-        print("Starting benchmarks...")
-        benchmark_results = run_standard_benchmarks(
-            client=client,
-            models_to_benchmark=models_to_benchmark,
-            benchmarks_to_run=benchmarks,
-            num_samples=args.samples or 20,
-            verbose=args.verbose
-        )
-
-        # Process benchmark results to calculate average test pass rates
-        for result in benchmark_results:
-            task_results = result.get("task_results", [])
-            avg_scores = {
-                "avg_score_statement": 0.0,
-                "avg_score_function": 0.0,
-                "avg_score_class": 0.0,
-                "avg_score_algorithm": 0.0,
-                "avg_score_context": 0.0
-            }
-            
-            # Group task results by type and calculate averages
-            type_scores = {key: [] for key in avg_scores.keys()}
-            for task in task_results:
-                task_type = task.get("type")
-                test_pass_rate = task.get("test_pass_rate", 0.0)
-                if task_type and f"avg_score_{task_type}" in type_scores:
-                    type_scores[f"avg_score_{task_type}"].append(test_pass_rate)
-            
-            for key, scores in type_scores.items():
-                avg_scores[key] = sum(scores) / len(scores) if scores else 0.0
-            
-            result.update(avg_scores)
-
-        # Display Results
-        if benchmark_results:
-            pretty_print_benchmarks(benchmark_results)
-        else:
-            print("Benchmarking completed, but no results were generated.")
+            # Display Results
+            if benchmark_results:
+                pretty_print_benchmarks(benchmark_results)
+            else:
+                print("Benchmarking completed, but no results were generated.")
 
         print("Benchmarking process finished.")
 
