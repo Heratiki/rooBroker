@@ -49,6 +49,7 @@ class ModelInfo(TypedDict):
     family: NotRequired[str]
     context_window: NotRequired[int]
     created: NotRequired[int]
+    provider: NotRequired[str]  # Added provider key
 
 
 class OllamaModelInfo(TypedDict):
@@ -61,6 +62,7 @@ class OllamaModelInfo(TypedDict):
     context_window: NotRequired[int]
     version: NotRequired[str]
     created: NotRequired[int]
+    provider: NotRequired[str]  # Added provider key
 
 
 DiscoveredModel = Union[ModelInfo, OllamaModelInfo]

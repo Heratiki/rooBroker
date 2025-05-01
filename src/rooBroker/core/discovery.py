@@ -71,6 +71,8 @@ def discover_models_with_status() -> Tuple[List[DiscoveredModel], Dict[str, Any]
     # Try LM Studio
     try:
         lm_models = lm_client.discover_models()
+        for model in lm_models:
+            model["provider"] = "LM Studio"
         all_models.extend(lm_models)
         status["providers"]["LM Studio"]["status"] = True
         status["providers"]["LM Studio"]["count"] = len(lm_models)
@@ -80,6 +82,8 @@ def discover_models_with_status() -> Tuple[List[DiscoveredModel], Dict[str, Any]
     # Try Ollama
     try:
         ollama_models = ollama_client.discover_models()
+        for model in ollama_models:
+            model["provider"] = "Ollama"
         all_models.extend(ollama_models)
         status["providers"]["Ollama"]["status"] = True
         status["providers"]["Ollama"]["count"] = len(ollama_models)

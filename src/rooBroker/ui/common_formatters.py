@@ -9,11 +9,13 @@ console = Console()
 def pretty_print_models(models: Sequence[DiscoveredModel]) -> None:
     table = Table(title="Discovered Models", box=box.SIMPLE)
     table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Family", style="magenta")
-    table.add_column("Context Window", style="green")
+    table.add_column("Provider", style="magenta")
+    table.add_column("Family", style="green")
+    table.add_column("Context Window", style="yellow")
     for m in models:
         table.add_row(
             str(m["id"]),
+            str(m.get("provider", "Unknown")),
             str(m.get("family", "")),
             str(m.get("context_window", ""))
         )
@@ -23,19 +25,21 @@ def pretty_print_benchmarks(results: List[Dict[str, Any]]) -> None:
     # Standard benchmarks table
     table = Table(title="Standard Benchmark Results", box=box.SIMPLE)
     table.add_column("Model ID", style="cyan", no_wrap=True)
-    table.add_column("Simple", style="green")
-    table.add_column("Moderate", style="yellow")
-    table.add_column("Complex", style="red")
-    table.add_column("Context", style="blue")
-    table.add_column("Failures", style="magenta")
-    
+    table.add_column("Statement", style="green")
+    table.add_column("Function", style="yellow")
+    table.add_column("Class", style="red")
+    table.add_column("Algorithm", style="blue")
+    table.add_column("Context", style="magenta")
+    table.add_column("Failures", style="white")
+
     for r in results:
         table.add_row(
             r.get("model_id", ""),
-            f"{r.get('score_simple', 0):.2f}",
-            f"{r.get('score_moderate', 0):.2f}",
-            f"{r.get('score_complex', 0):.2f}",
-            f"{r.get('score_context_window', 0):.2f}",
+            f"{r.get('avg_score_statement', 0):.2f}",
+            f"{r.get('avg_score_function', 0):.2f}",
+            f"{r.get('avg_score_class', 0):.2f}",
+            f"{r.get('avg_score_algorithm', 0):.2f}",
+            f"{r.get('avg_score_context', 0):.2f}",
             str(r.get("failures", 0))
         )
     console.print(table)

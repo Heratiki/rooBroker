@@ -34,7 +34,7 @@ def handle_discover(args: argparse.Namespace) -> None:
         for provider, info in status["providers"].items():
             if info["status"] is True:
                 print(
-                    f"{provider} Status: OK (Found {info.get('model_count', 0)} models)"
+                    f"{provider} Status: OK (Found {info.get('count', 0)} models)"
                 )
             else:
                 print(
@@ -133,6 +133,30 @@ def handle_benchmark(args: argparse.Namespace) -> None:
             num_samples=args.samples or 20,
             verbose=args.verbose
         )
+
+        # Process benchmark results to calculate average test pass rates
+        for result in benchmark_results:
+            task_results = result.get("task_results", [])
+            avg_scores = {
+                "avg_score_statement": 0.0,
+                "avg_score_function": 0.0,
+                "avg_score_class": 0.0,
+                "avg_score_algorithm": 0.0,
+                "avg_score_context": 0.0
+            }
+            
+            # Group task results by type and calculate averages
+            type_scores = {key: [] for key in avg_scores.keys()}
+            for task in task_results:
+                task_type = task.get("type")
+                test_pass_rate = task.get("test_pass_rate", 0.0)
+                if task_type and f"avg_score_{task_type}" in type_scores:
+                    type_scores[f"avg_score_{task_type}"].append(test_pass_rate)
+            
+            for key, scores in type_scores.items():
+                avg_scores[key] = sum(scores) / len(scores) if scores else 0.0
+            
+            result.update(avg_scores)
 
         # Display Results
         if benchmark_results:
