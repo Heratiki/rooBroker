@@ -204,17 +204,28 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
             for test_case in bench["test_cases"]:
                 try:
                     # Extract just the expression part if it's an assignment
-                    if '=' in code_to_execute:
-                        expression = code_to_execute.split('=')[1].strip()
-                    else:
-                        expression = code_to_execute
+                    code_lines = code_to_execute.strip().split('\n')
+                    expression = code_lines[-1]  # Take the last line
+                    if '=' in expression:
+                        expression = expression.split('=', 1)[1].strip()
                     
-                    result = eval(expression, {"__builtins__": __builtins__}, test_case.get("input", {}))
+                    # Create a safe environment for eval
+                    eval_env = {"__builtins__": {"range": range, "len": len}}
+                    
+                    # Evaluate the expression
+                    result = eval(expression, eval_env)
                     test_results.append(result == test_case["expected"])
+                    
+                    if verbose:
+                        print(f"Expression evaluated: {expression}")
+                        print(f"Result: {result}")
+                        print(f"Expected: {test_case['expected']}")
+                        print(f"Test passed: {test_results[-1]}")
+                        
                 except Exception as e:
                     test_results.append(False)
                     if verbose:
-                        print("Eval error:", e)
+                        print("Eval error:", str(e))
 
             results["test_results"] = test_results
             results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0

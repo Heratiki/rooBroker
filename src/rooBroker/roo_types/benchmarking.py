@@ -56,8 +56,8 @@ class BaseTestResult(TypedDict):
     error: Optional[str]
     metrics: Optional[Dict[str, Any]]
 
-class BenchmarkExecutionResult(TypedDict):
-    """Structure for complete benchmark execution results."""
+class BaseBenchmarkResult(TypedDict):
+    """Base structure for complete benchmark results."""
     task_id: str
     test_results: List[BaseTestResult]
     metrics: BenchmarkMetricsDict
@@ -87,3 +87,20 @@ class BenchmarkTask(BaseModel):
             raise ValueError("Test cases are required for non-string_contains evaluation methods")
             
         return values
+
+class BenchmarkExecutionResult(TypedDict):
+    """Result of executing a benchmark."""
+    task_id: str
+    test_results: List[Dict[str, Any]]
+    metrics: Dict[str, Any]
+
+# Export these types
+__all__ = [
+    'BenchmarkExecutionResult',
+    'BenchmarkTask',
+    'BaseTestResult',
+    'BaseTestCase',
+    'TaskType',
+    'DifficultyLevel',
+    'EvaluationMethod'
+]

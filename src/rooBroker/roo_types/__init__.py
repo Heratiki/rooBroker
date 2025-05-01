@@ -36,7 +36,6 @@ from .settings import (
 __all__ = [
     # Benchmarking types
     'BenchmarkResult',
-    'BenchmarkExecutionResult',
     'TestResult',
     'BenchmarkTask',
     'TestCase',
