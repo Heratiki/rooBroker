@@ -121,6 +121,18 @@ def handle_benchmark(args: argparse.Namespace) -> None:
                 return
             print(f"Models remaining after filtering: {[m.get('id') for m in models_to_benchmark]}")
 
+        # Filter models based on the specified provider when no model IDs are provided
+        if args.provider and not args.model_id:
+            print(f"Filtering models to benchmark based on provider: {args.provider}")
+            # Ensure the provider field exists and matches the specified provider (case-insensitive)
+            models_to_benchmark = [
+                model for model in models_to_benchmark
+                if model.get("provider", "").strip().lower() == args.provider.strip().lower()
+            ]
+            if not models_to_benchmark:
+                print(f"Error: No models found for provider '{args.provider}'.")
+                return
+
         # Run Benchmarks
         print("Starting benchmarks...")
         benchmark_results = run_standard_benchmarks(
