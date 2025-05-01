@@ -7,14 +7,12 @@ definitions, evaluation metrics, and execution logic.
 
 from typing import List, Dict, Any, Optional, cast
 from datetime import datetime, timezone
-import sys
-import re
 from math import comb
 from pathlib import Path
-import json
+import re
+import inspect
 from pydantic import ValidationError
 from rich.console import Console
-import textwrap
 from textwrap import dedent
 
 from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage
@@ -70,14 +68,16 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
         if bench["evaluation_method"] == "string_contains":
             print(f"DEBUG: String Contains - Starting evaluation for {bench.get('name')}")
             
-            # Get the primary expected value
-            expected = bench.get("expected")
-            
-            # If no primary expected value, try to get from variants
-            if expected is None:
-                variants = bench.get("expected_response_variants")
-                if variants and isinstance(variants, list) and len(variants) > 0:
-                    expected = variants[0]
+            # Get the expected value from test cases first
+            if bench.get("test_cases") and len(bench["test_cases"]) > 0:
+                expected = bench["test_cases"][0].get("expected")
+            else:
+                # Fallback to top-level expected or variants
+                expected = bench.get("expected")
+                if expected is None:
+                    variants = bench.get("expected_response_variants")
+                    if variants and isinstance(variants, list) and len(variants) > 0:
+                        expected = variants[0]
             
             # If we still don't have an expected value, record error
             if expected is None:
@@ -99,6 +99,7 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
             results["pass_all"] = expected_str in response_str
             results["test_pass_rate"] = 1.0 if results["pass_all"] else 0.0
             print(f"DEBUG: String Contains - Check completed. Result: {results['pass_all']}")
+            return results
 
         elif bench["evaluation_method"] == "exec_check_state":
             test_results = []
@@ -107,15 +108,22 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                 expected_keys = list(test_case["expected"].keys()) if isinstance(test_case.get("expected"), dict) else []
 
                 local_env = test_case["input"].copy()
-                # Indent the code to be executed
-                indented_code = '\n'.join([' ' * 4 + line for line in code_to_execute.splitlines()])
+                # Initialize input variables at the start of the function
+                input_init = "\n".join(f"    {k} = {repr(v)}" for k, v in test_case["input"].items())
+                
+                # Build function string with explicit indentation control
+                func_def_str = (
+                    "def temp_func():\n" + 
+                    input_init + "\n" +
+                    "    " + code_to_execute + "\n" +
+                    "    return {" +
+                    f"k: v for k, v in locals().items() if k in {expected_keys}" +
+                    "}"
+                )
 
-                func_def_str = dedent(f"""
-                def temp_func():
-                    {indented_code}
-                    # Return the dictionary of expected state variables
-                    return {{k: v for k, v in locals().items() if k in {expected_keys}}}
-                """)
+                if verbose:
+                    print("Generated function:", func_def_str)
+
                 try:
                     exec(func_def_str, local_env)
                     result = local_env["temp_func"]()
@@ -128,30 +136,59 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
             results["test_results"] = test_results
             results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
             results["pass_all"] = all(test_results)
+            return results
 
         elif bench["evaluation_method"] == "exec_call_func":
             test_results = []
             for test_case in bench["test_cases"]:
                 local_env = {}
                 try:
+                    # Execute the code to define the function
                     exec(code_to_execute, {"__builtins__": __builtins__}, local_env)
+                    
                     if "sequence" in test_case:
                         class_name = next((name for name, obj in local_env.items() if isinstance(obj, type)), None)
                         if class_name:
+                            # Execute sequence of class method calls
                             instance = local_env[class_name]()
                             result = None
-                            for op in test_case["sequence"]:
-                                result = eval(f"instance.{op}")
-                            test_results.append(result == test_case["expected"])
+                            for call in test_case["sequence"]:
+                                result = eval(f"instance.{call}", {"instance": instance})
+                            test_results.append(result == test_case.get("expected"))
                         else:
                             test_results.append(False)
+                            if verbose:
+                                print("No class definition found")
                     else:
+                        # Find the first callable that's not a builtin
                         func_name = next((name for name in local_env if callable(local_env[name])), None)
                         if func_name:
-                            result = local_env[func_name](**test_case["input"])
-                            test_results.append(result == test_case["expected"])
+                            # Get the function's parameter names
+                            params = inspect.signature(local_env[func_name]).parameters
+                            param_names = list(params.keys())
+                            
+                            # Map test case input keys to function parameter names
+                            if param_names:
+                                # If we have a single parameter and input doesn't match, use first value
+                                if len(param_names) == 1 and not any(k in test_case["input"] for k in param_names):
+                                    first_value = next(iter(test_case["input"].values()))
+                                    result = local_env[func_name](first_value)
+                                else:
+                                    # Map input keys to parameter names
+                                    kwargs = {
+                                        k: v for k, v in test_case["input"].items()
+                                        if k in param_names
+                                    }
+                                    result = local_env[func_name](**kwargs)
+                                test_results.append(result == test_case["expected"])
+                            else:
+                                test_results.append(False)
+                                if verbose:
+                                    print("Function has no parameters")
                         else:
                             test_results.append(False)
+                            if verbose:
+                                print("No function definition found")
                 except Exception as e:
                     test_results.append(False)
                     if verbose:
@@ -160,12 +197,19 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
             results["test_results"] = test_results
             results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
             results["pass_all"] = all(test_results)
+            return results
 
         elif bench["evaluation_method"] == "eval_expression":
             test_results = []
             for test_case in bench["test_cases"]:
                 try:
-                    result = eval(code_to_execute, {"__builtins__": __builtins__}, test_case["input"])
+                    # Extract just the expression part if it's an assignment
+                    if '=' in code_to_execute:
+                        expression = code_to_execute.split('=')[1].strip()
+                    else:
+                        expression = code_to_execute
+                    
+                    result = eval(expression, {"__builtins__": __builtins__}, test_case.get("input", {}))
                     test_results.append(result == test_case["expected"])
                 except Exception as e:
                     test_results.append(False)
@@ -175,11 +219,13 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
             results["test_results"] = test_results
             results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
             results["pass_all"] = all(test_results)
+            return results
 
         else:
             results["error"] = f"Unrecognized evaluation method: {bench['evaluation_method']}"
             if verbose:
                 print(f"Unrecognized evaluation method: {bench['evaluation_method']}")
+            return results
 
     except Exception as e:
         results["error"] = f"General evaluation error: {str(e)}"
@@ -368,28 +414,75 @@ def run_standard_benchmarks(
     return results
 
 def load_benchmarks_from_directory(directory_path: str) -> List[Dict[str, Any]]:
-    """Load and validate benchmark JSON files from a directory."""
+    """Load and validate benchmark JSON files from a directory.
+    
+    This function loads benchmark definitions from JSON files and validates them
+    against the appropriate schema based on their evaluation method. It provides
+    detailed error messages when validation fails.
+    
+    Args:
+        directory_path: Path to the directory containing benchmark JSON files
+        
+    Returns:
+        List of validated benchmark definitions
+        
+    Raises:
+        ValidationError: If any benchmark file fails validation
+        JSONDecodeError: If any file contains invalid JSON
+    """
+    from pathlib import Path
+    from rich.console import Console
+    import json
+    from pydantic import ValidationError
+    from ..roo_types.benchmark_schemas import BenchmarkTask
+    
     console = Console()
     loaded_benchmarks = []
+    failed_benchmarks = []
 
+    # Load and validate each JSON file
     for json_file in Path(directory_path).rglob('*.json'):
         try:
             with open(json_file, 'r', encoding='utf-8') as file:
                 content = json.load(file)
 
+            # Add file path to content for better error messages
+            if 'id' not in content:
+                content['id'] = json_file.stem
+
             # Validate using Pydantic model
             benchmark = BenchmarkTask(**content)
-
-            # Convert to dictionary and assign unique ID if not present
-            benchmark_dict = benchmark.model_dump()
-            if 'id' not in benchmark_dict:
-                benchmark_dict['id'] = str(json_file)
-
-            loaded_benchmarks.append(benchmark_dict)
+            loaded_benchmarks.append(benchmark.model_dump())
 
         except json.JSONDecodeError as e:
-            console.print(f"[red]Failed to decode JSON in file {json_file}: {e}[/red]")
+            failed_benchmarks.append({
+                'file': str(json_file),
+                'error': f"JSON decode error: {str(e)}",
+                'line': e.lineno,
+                'column': e.colno
+            })
         except ValidationError as e:
-            console.print(f"[red]Validation error in file {json_file}: {e}[/red]")
+            failed_benchmarks.append({
+                'file': str(json_file),
+                'error': "Validation errors:\n" + "\n".join(
+                    f"  - {error['loc']}: {error['msg']}"
+                    for error in e.errors()
+                )
+            })
+        except Exception as e:
+            failed_benchmarks.append({
+                'file': str(json_file),
+                'error': f"Unexpected error: {str(e)}"
+            })
+
+    # Report any validation failures
+    if failed_benchmarks:
+        console.print("\n[red]Benchmark Validation Errors:[/red]")
+        for failure in failed_benchmarks:
+            console.print(f"\n[yellow]File:[/yellow] {failure['file']}")
+            console.print(f"[red]Error:[/red] {failure['error']}")
+            if 'line' in failure and 'column' in failure:
+                console.print(f"[yellow]Location:[/yellow] Line {failure['line']}, Column {failure['column']}")
+        console.print(f"\n[yellow]Successfully loaded {len(loaded_benchmarks)} of {len(loaded_benchmarks) + len(failed_benchmarks)} benchmarks[/yellow]\n")
 
     return loaded_benchmarks

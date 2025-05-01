@@ -1,14 +1,12 @@
 """Common type definitions for the RooBroker project."""
 
 from .benchmarking import (
-    BenchmarkResult,
-    CategoryResults,
-    BenchmarkSummary,
-    MetricResult,
-    TestResult,
+    BenchmarkExecutionResult,
     BenchmarkTask,
-    TestCase
+    BaseTestResult as TestResult,
+    BaseTestCase as TestCase
 )
+from .discovery import BenchmarkResult
 from .models import (
     ModelState,
     ApiConfig,
@@ -38,9 +36,7 @@ from .settings import (
 __all__ = [
     # Benchmarking types
     'BenchmarkResult',
-    'CategoryResults',
-    'BenchmarkSummary',
-    'MetricResult',
+    'BenchmarkExecutionResult',
     'TestResult',
     'BenchmarkTask',
     'TestCase',

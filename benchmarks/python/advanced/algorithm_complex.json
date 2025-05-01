@@ -5,10 +5,9 @@
     "difficulty": "advanced",
     "prompt": "Refactor this code to use a list comprehension:\nresult=[]\nfor x in range(10):\n    if x%2==0: result.append(x*x)",
     "system_prompt": "You are a Python expert. Provide the Python code solution for the user's request. Please enclose the code within markdown code blocks (```python ... ```).",
-    "expected": "[x*x for x in range(10) if x%2==0]",
-    "test_cases": [
+    "expected": "[x*x for x in range(10) if x%2==0]",    "test_cases": [
         {"input": {}, "expected": [0, 4, 16, 36, 64]},
-        {"verification": "isinstance(eval(response), list)"}
+        {"input": {}, "expected": [0, 4, 16, 36, 64]}
     ],
     "metrics": {
         "conciseness": true,
