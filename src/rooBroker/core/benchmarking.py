@@ -67,7 +67,7 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
 
         # Evaluation logic based on evaluation_method
         if bench["evaluation_method"] == "string_contains":
-            print(f"DEBUG: String Contains - Starting evaluation for {bench.get('name')}")
+            logger.debug(f"String Contains - Starting evaluation for {bench.get('name')}")
             
             # Get the expected value from test cases first
             if bench.get("test_cases") and len(bench["test_cases"]) > 0:
