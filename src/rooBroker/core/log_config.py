@@ -13,10 +13,10 @@ logger = logging.getLogger('rooBroker')
 logger.setLevel(logging.DEBUG)
 
 # Create file handlers with log rotation
-info_handler = RotatingFileHandler(INFO_LOG_FILE, maxBytes=5*1024*1024, backupCount=9, mode='w')
+info_handler = RotatingFileHandler(INFO_LOG_FILE, maxBytes=5*1024*1024, backupCount=9, mode='a')
 info_handler.setLevel(logging.INFO)
 
-debug_handler = RotatingFileHandler(DEBUG_LOG_FILE, maxBytes=5*1024*1024, backupCount=9, mode='w')
+debug_handler = RotatingFileHandler(DEBUG_LOG_FILE, maxBytes=5*1024*1024, backupCount=9, mode='a')
 debug_handler.setLevel(logging.DEBUG)
 
 # Create a console handler

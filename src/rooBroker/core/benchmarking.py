@@ -16,6 +16,8 @@ from rich.console import Console
 from rich.progress import Progress
 from textwrap import dedent
 import time
+import io
+import contextlib
 
 from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage
 from rooBroker.interfaces.base import ModelProviderClient
@@ -54,15 +56,17 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
 
     # Pre-processing: Remove <think>...</think> blocks
     response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+    logger.debug(f"Raw response received: {repr(response)}") # Log raw response
 
     try:
-        logger.debug(f"DEBUG: Evaluating benchmark: {bench.get('name')}, Method: {bench.get('evaluation_method')}")
-        logger.debug(f"DEBUG: Bench data: {bench}")
+        logger.debug(f"Evaluating benchmark: {bench.get('name')}, Method: {bench.get('evaluation_method')}")
+        # logger.debug(f"DEBUG: Bench data: {bench}") # Keep this if needed, but can be verbose
 
         # Extract code block or use raw response
         code_block_pattern = r"```(?:python)?\s*([\s\S]*?)\s*```"
         code_match = re.search(code_block_pattern, response)
         code_to_execute = code_match.group(1).strip() if code_match else response.strip()
+        logger.debug(f"Code to execute: {repr(code_to_execute)}") # Log processed code
 
         if verbose:
             print("Processed response:", code_to_execute)
@@ -106,7 +110,7 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
 
         elif bench["evaluation_method"] == "exec_check_state":
             test_results = []
-            for test_case in bench["test_cases"]:
+            for i, test_case in enumerate(bench["test_cases"]):
                 # Safely handle optional 'expected' values
                 expected_keys = list(test_case["expected"].keys()) if isinstance(test_case.get("expected"), dict) else []
 
@@ -128,40 +132,52 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                     print("Generated function:", func_def_str)
 
                 try:
-                    exec(func_def_str, local_env)
+                    # Redirect stdout during exec
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        exec(func_def_str, local_env)
                     result = local_env["temp_func"]()
-                    test_results.append(result == test_case.get("expected", {}))
+                    passed = result == test_case.get("expected", {})
+                    test_results.append(passed)
+                    logger.debug(f"Exec_check_state - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case.get('expected', {})}, Got: {result})")
                 except Exception as e:
-                    test_results.append(False)
+                    passed = False
+                    test_results.append(passed)
+                    error_msg = f"Exec_check_state - Test Case {i+1}: Execution error: {e}"
+                    logger.debug(error_msg) # Log error at debug level
                     if verbose:
-                        print("Execution error:", e)
+                        print(error_msg)
 
             results["test_results"] = test_results
             results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
             results["pass_all"] = all(test_results)
+            logger.debug(f"Exec_check_state - Final Results: {results}") # Log final results
             return results
 
         elif bench["evaluation_method"] == "exec_call_func":
             test_results = []
-            for test_case in bench["test_cases"]:
+            for i, test_case in enumerate(bench["test_cases"]):
                 local_env = {}
+                passed = False # Default to False
                 try:
-                    # Execute the code to define the function
-                    exec(code_to_execute, {"__builtins__": __builtins__}, local_env)
-                    
+                    # Redirect stdout during the initial exec to define the function/class
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        exec(code_to_execute, {"__builtins__": __builtins__}, local_env)
+
                     if "sequence" in test_case:
                         class_name = next((name for name, obj in local_env.items() if isinstance(obj, type)), None)
                         if class_name:
                             # Execute sequence of class method calls
                             instance = local_env[class_name]()
                             result = None
-                            for call in test_case["sequence"]:
-                                result = eval(f"instance.{call}", {"instance": instance})
-                            test_results.append(result == test_case.get("expected"))
+                            # Redirect stdout during eval for method calls
+                            with contextlib.redirect_stdout(io.StringIO()):
+                                for call in test_case["sequence"]:
+                                    result = eval(f"instance.{call}", {"instance": instance})
+                            passed = result == test_case.get("expected")
+                            logger.debug(f"Exec_call_func (Class Seq) - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case.get('expected')}, Got: {result})")
                         else:
-                            test_results.append(False)
-                            if verbose:
-                                print("No class definition found")
+                            logger.debug(f"Exec_call_func (Class Seq) - Test Case {i+1}: Fail - No class definition found")
+                            # passed remains False
                     else:
                         # Find the first callable that's not a builtin
                         func_name = next((name for name in local_env if callable(local_env[name])), None)
@@ -182,29 +198,36 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                                         k: v for k, v in test_case["input"].items()
                                         if k in param_names
                                     }
-                                    result = local_env[func_name](**kwargs)
-                                test_results.append(result == test_case["expected"])
+                                    # Redirect stdout during function call
+                                    with contextlib.redirect_stdout(io.StringIO()):
+                                        result = local_env[func_name](**kwargs)
+                                passed = result == test_case["expected"]
+                                logger.debug(f"Exec_call_func (Func) - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case['expected']}, Got: {result})")
                             else:
-                                test_results.append(False)
-                                if verbose:
-                                    print("Function has no parameters")
+                                logger.debug(f"Exec_call_func (Func) - Test Case {i+1}: Fail - Function has no parameters")
+                                # passed remains False
                         else:
-                            test_results.append(False)
-                            if verbose:
-                                print("No function definition found")
+                            logger.debug(f"Exec_call_func (Func) - Test Case {i+1}: Fail - No function definition found")
+                            # passed remains False
                 except Exception as e:
-                    test_results.append(False)
+                    # passed remains False
+                    error_msg = f"Exec_call_func - Test Case {i+1}: Execution error: {e}"
+                    logger.debug(error_msg) # Log error at debug level
                     if verbose:
-                        print("Execution error:", e)
+                        print(error_msg)
+                finally:
+                    test_results.append(passed) # Append final pass/fail status
 
             results["test_results"] = test_results
             results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
             results["pass_all"] = all(test_results)
+            logger.debug(f"Exec_call_func - Final Results: {results}") # Log final results
             return results
 
         elif bench["evaluation_method"] == "eval_expression":
             test_results = []
-            for test_case in bench["test_cases"]:
+            for i, test_case in enumerate(bench["test_cases"]):
+                passed = False # Default to False
                 try:
                     # Extract just the expression part if it's an assignment
                     code_lines = code_to_execute.strip().split('\n')
@@ -215,9 +238,11 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                     # Create a safe environment for eval
                     eval_env = {"__builtins__": {"range": range, "len": len}}
                     
-                    # Evaluate the expression
-                    result = eval(expression, eval_env)
-                    test_results.append(result == test_case["expected"])
+                    # Evaluate the expression, redirecting stdout
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        result = eval(expression, eval_env)
+                    passed = result == test_case["expected"]
+                    logger.debug(f"Eval_expression - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case['expected']}, Got: {result})")
                     
                     if verbose:
                         print(f"Expression evaluated: {expression}")
@@ -226,28 +251,32 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                         print(f"Test passed: {test_results[-1]}")
                         
                 except Exception as e:
-                    test_results.append(False)
+                    # passed remains False
+                    error_msg = f"Eval_expression - Test Case {i+1}: Eval error: {str(e)}"
+                    logger.debug(error_msg) # Log error at debug level
                     if verbose:
-                        print("Eval error:", str(e))
+                        print(error_msg)
+                finally:
+                    test_results.append(passed) # Append final pass/fail status
 
             results["test_results"] = test_results
             results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
             results["pass_all"] = all(test_results)
+            logger.debug(f"Eval_expression - Final Results: {results}") # Log final results
             return results
 
         else:
+            logger.error(f"Unrecognized evaluation method: {bench['evaluation_method']}") # Log as error
             results["error"] = f"Unrecognized evaluation method: {bench['evaluation_method']}"
-            if verbose:
-                print(f"Unrecognized evaluation method: {bench['evaluation_method']}")
             return results
 
     except Exception as e:
-        logger.exception(f"General evaluation error: {str(e)}")
+        logger.exception(f"General evaluation error for benchmark '{bench.get('name')}': {str(e)}") # Use logger.exception
         results["error"] = f"General evaluation error: {str(e)}"
         if verbose:
             print("General evaluation error:", e)
 
-    logger.debug(f"DEBUG: Evaluation Results before return: {results}")
+    logger.debug(f"Evaluation Results before return for '{bench.get('name')}': {results}")
     return results
 
 def calculate_pass_at_k(n_samples: int, n_correct: int, k: int) -> float:
@@ -384,41 +413,64 @@ def run_standard_benchmarks(
                     ]
                     
                     # Execute the benchmark by calling the client
-                    response_data: str = client.run_completion(
-                        model_id=model_id,
-                        messages=messages,
-                        max_tokens=bench.get("max_tokens", 1024),  # Use benchmark-specific or default max_tokens
-                        temperature=bench.get("temperature", 0.7) # Use benchmark-specific or default temperature
-                    )
-                    
-                    # The response is directly the content string
-                    response_content = response_data
-                    
-                    # Evaluate the response
-                    evaluation = evaluate_response(response_content, bench, verbose)
-                    
-                    # Store sample result
-                    bench_result["samples"].append({
-                        "sample_num": sample_num + 1,
-                        "response": response_content,
-                        "evaluation": evaluation
-                    })
-                    
+                    try: # Add try/except around client call
+                        response_data: str = client.run_completion(
+                            model_id=model_id,
+                            messages=messages,
+                            max_tokens=bench.get("max_tokens", 1024),
+                            temperature=bench.get("temperature", 0.7)
+                        )
+                        response_content = response_data
+                        logger.debug(f"Model '{model_id}', Benchmark '{bench['name']}', Sample {sample_num+1} - Response received: {repr(response_content)}") # Log response
+
+                        # Evaluate the response
+                        evaluation = evaluate_response(response_content, bench, verbose)
+
+                        # Store sample result
+                        bench_result["samples"].append({
+                            "sample_num": sample_num + 1,
+                            "response": response_content, # Store raw response for potential later analysis
+                            "evaluation": evaluation
+                        })
+                    except Exception as client_err:
+                        error_msg = f"Model '{model_id}', Benchmark '{bench['name']}', Sample {sample_num+1} - Error during client.run_completion or evaluation: {client_err}"
+                        logger.error(error_msg) # Log client/eval errors as ERROR
+                        # Store error information in sample result
+                        bench_result["samples"].append({
+                            "sample_num": sample_num + 1,
+                            "response": None,
+                            "evaluation": {"error": error_msg, "pass_all": False, "test_results": [], "test_pass_rate": 0.0}
+                        })
+                        model_result["failures"] += 1 # Increment failures for this specific sample error
+
                     # Update progress
                     progress.update(bench_task, advance=1)
                     progress.update(overall_task, advance=1)
 
+                # Aggregate results for the benchmark *after* all samples are run
+                # Calculate average TPR across samples for this benchmark
+                sample_evals = [s['evaluation'] for s in bench_result['samples'] if s['evaluation']]
+                if sample_evals:
+                    bench_result['avg_test_pass_rate'] = sum(e.get('test_pass_rate', 0.0) for e in sample_evals) / len(sample_evals)
+                    bench_result['pass_all_count'] = sum(1 for e in sample_evals if e.get('pass_all', False))
+                else:
+                    bench_result['avg_test_pass_rate'] = 0.0
+                    bench_result['pass_all_count'] = 0
+                logger.debug(f"Benchmark '{bench['name']}' completed. Avg TPR: {bench_result['avg_test_pass_rate']:.2f}, Pass All Count: {bench_result['pass_all_count']}/{num_samples}")
+
                 model_result["task_results"].append(bench_result)
-                
-            except Exception as e:
-                if verbose:
-                    print(f"Error in benchmark {bench['name']}: {str(e)}")
-                model_result["failures"] += 1
+
+            except Exception as e: # Catch errors during the benchmark loop itself (less likely now)
+                error_msg = f"Error processing benchmark {bench['name']} for model {model_id}: {str(e)}"
+                logger.exception(error_msg) # Use exception to get traceback
+                # We might not have sample results here, so just note the failure
+                model_result["failures"] += num_samples # Count all samples as failed if the whole bench loop fails
 
             progress.update(model_task, advance=1)
 
         results.append(model_result)
 
+    progress.stop() # Explicitly stop the progress display before exiting the context
     return results
 
 def load_benchmarks_from_directory(directory_path: str) -> List[Dict[str, Any]]:
