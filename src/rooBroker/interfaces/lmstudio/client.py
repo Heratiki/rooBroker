@@ -14,6 +14,7 @@ from rooBroker.roo_types.discovery import (
     ChatMessage,
     ModelInfo
 )
+from rooBroker.core.log_config import logger
 
 
 class LMStudioClient(ModelProviderClient):
@@ -136,20 +137,18 @@ class LMStudioClient(ModelProviderClient):
                 response_buffer = min(max_tokens, max(1000, int(context_length * 0.25)))
                 payload["max_tokens"] = response_buffer
                 input_limit = context_length - response_buffer
-                
+
                 # Estimate input tokens (rough approximation)
                 estimated = sum(len(m["content"]) // 4 for m in messages)
                 if estimated > input_limit * 0.9:
-                    print(f"Warning: Input may exceed token limit. Est: {estimated}, Limit: {input_limit}")
-                continue_with_default = False
+                    logger.warning(f"Input may exceed token limit. Est: {estimated}, Limit: {input_limit}")
             else:
-                continue_with_default = True
+                logger.info("Using default max_tokens due to missing context_length.")
         else:
-            continue_with_default = True
+            logger.info("Using default max_tokens due to missing model details.")
             
         # If we didn't have valid context information, use the default max_tokens
-        if continue_with_default:
-            payload["max_tokens"] = max_tokens
+        payload["max_tokens"] = max_tokens
 
         try:
             response = requests.post(

@@ -15,6 +15,7 @@ from rooBroker.roo_types.discovery import (
     ChatMessage,
     OllamaModelInfo
 )
+from rooBroker.core.log_config import logger
 
 
 class OllamaClient(ModelProviderClient):
@@ -120,7 +121,7 @@ class OllamaClient(ModelProviderClient):
                 
             return model_info
         except Exception as e:
-            print(f"Warning: Failed to get model details for {model_id}: {e}")
+            logger.warning(f"Failed to get model details for {model_id}: {e}")
             return None
 
     def run_completion(

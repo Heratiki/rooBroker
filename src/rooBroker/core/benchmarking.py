@@ -18,6 +18,7 @@ from textwrap import dedent
 from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage
 from rooBroker.interfaces.base import ModelProviderClient
 from rooBroker.roo_types.benchmarking import BenchmarkTask
+from rooBroker.core.log_config import logger
 
 # Benchmark metadata types
 TASK_TYPES = {
@@ -53,8 +54,8 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
     response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
 
     try:
-        print(f"DEBUG: Evaluating benchmark: {bench.get('name')}, Method: {bench.get('evaluation_method')}")
-        print(f"DEBUG: Bench data: {bench}")
+        logger.debug(f"DEBUG: Evaluating benchmark: {bench.get('name')}, Method: {bench.get('evaluation_method')}")
+        logger.debug(f"DEBUG: Bench data: {bench}")
 
         # Extract code block or use raw response
         code_block_pattern = r"```(?:python)?\s*([\s\S]*?)\s*```"
@@ -88,9 +89,9 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                     print("Error: No expected value found in benchmark definition")
                 return results
             
-            print(f"DEBUG: String Contains - Expected Type: {type(expected)}, Expected Value: {repr(expected)}")
-            print(f"DEBUG: String Contains - Response Type: {type(response)}, Response Value: {repr(response)}")
-            print("DEBUG: String Contains - About to perform 'expected in response'")
+            logger.debug(f"DEBUG: String Contains - Expected Type: {type(expected)}, Expected Value: {repr(expected)}")
+            logger.debug(f"DEBUG: String Contains - Response Type: {type(response)}, Response Value: {repr(response)}")
+            logger.debug("DEBUG: String Contains - About to perform 'expected in response'")
             
             # Ensure both expected and response are strings before comparison
             expected_str = str(expected)
@@ -98,7 +99,7 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
             
             results["pass_all"] = expected_str in response_str
             results["test_pass_rate"] = 1.0 if results["pass_all"] else 0.0
-            print(f"DEBUG: String Contains - Check completed. Result: {results['pass_all']}")
+            logger.debug(f"DEBUG: String Contains - Check completed. Result: {results['pass_all']}")
             return results
 
         elif bench["evaluation_method"] == "exec_check_state":
@@ -239,6 +240,7 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
             return results
 
     except Exception as e:
+        logger.exception(f"General evaluation error: {str(e)}")
         results["error"] = f"General evaluation error: {str(e)}"
         if verbose:
             print("General evaluation error:", e)

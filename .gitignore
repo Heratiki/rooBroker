@@ -138,3 +138,4 @@ src/rooBroker/lmstudio/benchmark.py
 .pytest_cache/
 .tmp.driveupload/
 .tmp.drivedownload/
+src/logs/

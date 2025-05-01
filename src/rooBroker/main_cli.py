@@ -16,10 +16,11 @@ from rooBroker.ui.common_formatters import pretty_print_benchmarks, pretty_print
 from rooBroker.interfaces.base import ModelProviderClient
 from rooBroker.roo_types.discovery import DiscoveredModel
 from rooBroker.core.mode_management import update_room_modes
+from rooBroker.core.log_config import logger
 
 
 def handle_discover(args: argparse.Namespace) -> None:
-    print("Discovering models...")
+    logger.info("Discovering models...")
     try:
         models, status = discover_models_with_status()
 
@@ -27,22 +28,18 @@ def handle_discover(args: argparse.Namespace) -> None:
             # Convert DiscoveredModel objects to dictionaries
             # model_dicts = [model.__dict__ for model in models]
             pretty_print_models(models)
-            print(f"Successfully discovered {len(models)} models.")
+            logger.info(f"Successfully discovered {len(models)} models.")
         else:
-            print("No models discovered.")
+            logger.warning("No models discovered.")
 
         for provider, info in status["providers"].items():
             if info["status"] is True:
-                print(
-                    f"{provider} Status: OK (Found {info.get('count', 0)} models)"
-                )
+                logger.info(f"{provider} Status: OK (Found {info.get('count', 0)} models)")
             else:
-                print(
-                    f"{provider} Status: FAILED - Error: {info.get('error', 'Unknown error')}"
-                )
+                logger.error(f"{provider} Status: FAILED - Error: {info.get('error', 'Unknown error')}")
 
     except Exception as e:
-        print(f"An error occurred during model discovery: {e}")
+        logger.exception(f"An error occurred during model discovery: {e}")
 
 
 def handle_benchmark(args: argparse.Namespace) -> None:
