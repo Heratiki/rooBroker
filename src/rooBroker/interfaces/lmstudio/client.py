@@ -150,13 +150,22 @@ class LMStudioClient(ModelProviderClient):
         # If we didn't have valid context information, use the default max_tokens
         payload["max_tokens"] = max_tokens
 
+        # Determine dynamic timeout based on model_id
+        timeout_sec = 60  # Default timeout
+        if any(keyword in model_id.lower() for keyword in ["7b", "13b"]) or (model_details and model_details.get("context_window", 0) > 8000):
+            timeout_sec = 120
+        elif any(keyword in model_id.lower() for keyword in ["30b", "34b", "70b"]):
+            timeout_sec = 180
+
+        logger.debug(f"Using dynamic timeout: {timeout_sec} seconds for model_id: {model_id}")
+
         try:
             response = requests.post(
                 self.completions_endpoint,
                 json=payload,
                 headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'},
                 verify=False,
-                timeout=60
+                timeout=timeout_sec
             )
             response.raise_for_status()
             result = response.json()
