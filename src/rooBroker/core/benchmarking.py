@@ -245,7 +245,7 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
         if verbose:
             print("General evaluation error:", e)
 
-    print(f"DEBUG: Evaluation Results before return: {results}")
+    logger.debug(f"DEBUG: Evaluation Results before return: {results}")
     return results
 
 def calculate_pass_at_k(n_samples: int, n_correct: int, k: int) -> float:
