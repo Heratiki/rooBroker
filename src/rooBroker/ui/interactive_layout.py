@@ -35,6 +35,48 @@ class MenuSection:
         ]
         self.selected = 0
 
+        self.show_main_menu()
+
+    def show_main_menu(self):
+        self.options = [
+            "1. Discover Models",
+            "2. Benchmark Models",
+            "3. Save State",
+            "4. Update Roomodes",
+            "5. Run All Steps",
+            "6. View Results",
+            "7. Launch Proxy",
+            "8. Exit"
+        ]
+
+    def show_benchmark_submenu(self):
+        self.options = [
+            "1. Run All Benchmarks",
+            "2. Run Basic Python Benchmarks",
+            "3. Run Advanced Python Benchmarks",
+            "4. Run Context Benchmarks",
+            "5. Back to Main Menu",
+            "6. Benchmark Configuration"
+        ]
+
+    def show_benchmark_config_menu(self):
+        """Displayed when configuring benchmark options."""
+        self.options = [
+            "1. Set Model Source",
+            "2. <Option 2 Placeholder>",
+            "3. <Option 3 Placeholder>",
+            "4. Back to Benchmark Submenu"
+        ]
+
+    def show_model_source_menu(self):
+        """Displayed for selecting model source in benchmark config."""
+        self.options = [
+            "1. Use Discovered Models (Default)",
+            "2. Load from State (.modelstate.json)",
+            "3. Enter Model IDs Manually",
+            "4. Back to Benchmark Config"
+        ]
+
     def __rich__(self) -> Panel:
         """Return the rich panel containing the menu."""
         menu_items = []

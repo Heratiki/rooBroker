@@ -58,7 +58,12 @@ benchmark_results: List[Dict[str, Any]] = []
 # Global proxy server state
 proxy_server = None
 proxy_stop_function = None
-
+current_menu: str = "main"
+app_state = {
+    'benchmark_config': {
+        'model_source': 'discovered'
+    }
+}
 
 async def discover_models_only() -> None:
     """Discover available models without benchmarking."""
@@ -407,6 +412,69 @@ async def launch_context_proxy() -> None:
         layout.prompt.set_status("Error launching proxy")
 
 
+async def run_filtered_benchmarks(filter_criteria: dict) -> None:
+    """Run a predefined set of benchmarks based on filter_criteria."""
+    global benchmark_results, discovered_models, current_menu
+    layout.prompt.add_message("[yellow]Starting filtered benchmarks...[/yellow]")
+    layout.prompt.set_status("Running benchmarks")
+    # Load and filter
+    benchmarks = load_benchmarks_from_directory("./benchmarks")
+    filtered = []
+    for bm in benchmarks:
+        if filter_criteria.get("all"):
+            filtered = benchmarks
+            break
+        if filter_criteria.get("difficulty") and bm.get("difficulty") != filter_criteria["difficulty"]:
+            continue
+        if filter_criteria.get("tags"):
+            tags = [t.lower() for t in bm.get("tags", [])]
+            if not any(t in tags for t in filter_criteria["tags"]):
+                continue
+        if filter_criteria.get("type") and bm.get("type") != filter_criteria["type"]:
+            continue
+        filtered.append(bm)
+    if not filtered:
+        layout.prompt.add_message("[yellow]No benchmarks match criteria.[/yellow]")
+        layout.prompt.set_status("No benchmarks match filters")
+        current_menu = "main"
+        layout.menu.show_main_menu()
+        return
+    # Choose client
+    has_lm = any(m.get("family") for m in discovered_models)
+    has_ol = any(m.get("name") and not m.get("family") for m in discovered_models)
+    if has_lm:
+        client = LMStudioClient()
+    elif has_ol:
+        client = OllamaClient()
+    else:
+        layout.prompt.add_message("[red]No providers available.[/red]")
+        layout.prompt.set_status("No client")
+        current_menu = "main"
+        layout.menu.show_main_menu()
+        return
+    # Run benchmarks
+    benchmark_results.clear()
+    with Progress(
+        TextColumn("[bold blue]{task.description}"), BarColumn(),
+        MofNCompleteColumn(), TimeRemainingColumn(),
+        console=console, transient=True
+    ) as progress:
+        results = await asyncio.to_thread(
+            run_standard_benchmarks,
+            client,
+            discovered_models,
+            benchmarks_to_run=filtered,
+            progress=progress,
+            num_samples=3,
+            verbose=False
+        )
+        benchmark_results.extend(results)
+    layout.prompt.add_message("[green]Filtered benchmarking complete.[/green]")
+    layout.prompt.set_status("Benchmarks done")
+    current_menu = "main"
+    layout.menu.show_main_menu()
+
+
 # Map menu options to their corresponding functions
 # Type hint for the dictionary values
 ActionType = Callable[[], Awaitable[None]]
@@ -454,6 +522,7 @@ async def handle_menu_choice(choice: int) -> bool:
 
 
 async def interactive_main() -> None:
+    global current_menu, app_state
     """Main entry point for the interactive TUI."""
     # Define cleanup helper function
     def _cleanup_resources():
@@ -477,48 +546,97 @@ async def interactive_main() -> None:
                     # Read a single keypress without requiring Enter
                     key = read_single_key()
                     
-                    if key == '1':
-                        # Discover models
-                        layout.menu.selected = 0  # Option 1 is at index 0
-                        await discover_models_only()
-                    elif key == '2':
-                        # Benchmark models
-                        layout.menu.selected = 1  # Option 2 is at index 1
-                        await benchmark_models_only()
-                    elif key == '3':
-                        # Save state
-                        layout.menu.selected = 2  # Option 3 is at index 2
-                        await manual_save_state()
-                    elif key == '4':
-                        # Update roomodes
-                        layout.menu.selected = 3  # Option 4 is at index 3
-                        await update_roomodes_action()
-                    elif key == '5':
-                        # Run all steps
-                        layout.menu.selected = 4  # Option 5 is at index 4
-                        await run_all_steps()
-                    elif key == '6':
-                        # View benchmark results
-                        layout.menu.selected = 5  # Option 6 is at index 5
-                        await view_benchmark_results()
-                    elif key == '7':
-                        # Launch context proxy
-                        layout.menu.selected = 6  # Option 7 is at index 6
-                        await launch_context_proxy()
-                    elif key == '8':
-                        # Exit
-                        layout.menu.selected = 7  # Option 8 is at index 7
-                        _cleanup_resources()  # Clean up resources before exiting
-                        return  # Exit the program
-                    elif key == '\x1b':  # Escape key
-                        console.print("[yellow]Escape key pressed. Exiting...[/yellow]")
-                        _cleanup_resources()  # Clean up resources before exiting
-                        running = False
-                        break
-                    else:
-                        # Invalid key, show message
-                        layout.prompt.add_message("[red]Invalid key. Please press 1-8, or Q to quit.[/red]")
-                        layout.prompt.set_status("Invalid key pressed")
+                    if current_menu == "main":
+                        if key == '1':
+                            # Discover models
+                            layout.menu.selected = 0  # Option 1 is at index 0
+                            await discover_models_only()
+                        elif key == '2':
+                            # Benchmark models
+                            current_menu = "benchmark_submenu"
+                            layout.menu.show_benchmark_submenu()
+                        elif key == '3':
+                            # Save state
+                            layout.menu.selected = 2  # Option 3 is at index 2
+                            await manual_save_state()
+                        elif key == '4':
+                            # Update roomodes
+                            layout.menu.selected = 3  # Option 4 is at index 3
+                            await update_roomodes_action()
+                        elif key == '5':
+                            # Run all steps
+                            layout.menu.selected = 4  # Option 5 is at index 4
+                            await run_all_steps()
+                        elif key == '6':
+                            # View benchmark results
+                            layout.menu.selected = 5  # Option 6 is at index 5
+                            await view_benchmark_results()
+                        elif key == '7':
+                            # Launch context proxy
+                            layout.menu.selected = 6  # Option 7 is at index 6
+                            await launch_context_proxy()
+                        elif key == '8':
+                            # Exit
+                            layout.menu.selected = 7  # Option 8 is at index 7
+                            _cleanup_resources()  # Clean up resources before exiting
+                            return  # Exit the program
+                        elif key == '\x1b':  # Escape key
+                            console.print("[yellow]Escape key pressed. Exiting...[/yellow]")
+                            _cleanup_resources()  # Clean up resources before exiting
+                            running = False
+                            break
+                        else:
+                            # Invalid key, show message
+                            layout.prompt.add_message("[red]Invalid key. Please press 1-8, or Q to quit.[/red]")
+                            layout.prompt.set_status("Invalid key pressed")
+            
+                    elif current_menu == "benchmark_submenu":
+                        if key == '1':
+                            await run_filtered_benchmarks({'all': True})
+                        elif key == '2':
+                            await run_filtered_benchmarks({'difficulty': 'basic', 'tags': ['python']})
+                        elif key == '3':
+                            await run_filtered_benchmarks({'difficulty': 'advanced', 'tags': ['python']})
+                        elif key == '4':
+                            await run_filtered_benchmarks({'type': 'context'})
+                        elif key == '5':
+                            current_menu = "main"
+                            layout.menu.show_main_menu()
+                        elif key == '6':  # new config option in submenu
+                            current_menu = "benchmark_config"
+                            layout.menu.show_benchmark_config_menu()
+                            layout.prompt.add_message(
+                                f"Current model source: {app_state['benchmark_config']['model_source']}"
+                            )
+                    
+                    elif current_menu == "benchmark_config":
+                        # 1 = Set Model Source
+                        if key == '1':
+                            current_menu = "benchmark_model_source"
+                            layout.menu.show_model_source_menu()
+                            layout.prompt.add_message(
+                                f"Select a model source (current: {app_state['benchmark_config']['model_source']})"
+                            )
+                        # ...handle other config options...
+                        elif key == '4':
+                            current_menu = "benchmark_submenu"
+                            layout.menu.show_benchmark_submenu()
+                    
+                    elif current_menu == "benchmark_model_source":
+                        if key == '1':
+                            app_state['benchmark_config']['model_source'] = 'discovered'
+                            layout.prompt.add_message("[green]Model source set to: discovered[/green]")
+                        elif key == '2':
+                            app_state['benchmark_config']['model_source'] = 'state'
+                            layout.prompt.add_message("[green]Model source set to: state[/green]")
+                        elif key == '3':
+                            app_state['benchmark_config']['model_source'] = 'manual'
+                            layout.prompt.add_message("[yellow]Manual ID entry will be implemented later.[/yellow]")
+                        elif key == '4':
+                            pass  # back without change
+                        # return to config menu
+                        current_menu = "benchmark_config"
+                        layout.menu.show_benchmark_config_menu()
             
             except KeyboardInterrupt:
                 console.print("\n[yellow]Ctrl+C detected. Exiting...[/yellow]")
