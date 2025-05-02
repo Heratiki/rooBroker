@@ -7,7 +7,7 @@ allowing users to discover, benchmark, and manage LM Studio models.
 
 import sys
 import asyncio
-from typing import NoReturn, Optional, List, Dict, Any, cast, Callable, Awaitable
+from typing import NoReturn, Optional, List, Dict, Any, cast, Callable, Awaitable, Sequence, Union
 from datetime import datetime, timedelta
 
 from rich.live import Live
@@ -61,9 +61,27 @@ proxy_stop_function = None
 current_menu: str = "main"
 app_state = {
     'benchmark_config': {
-        'model_source': 'discovered'
+        'model_source': 'discovered',
+        'provider': None,
+        'provider_options': []
     }
 }
+
+difficulties = ["basic", "intermediate", "advanced", None]
+types = ["statement", "function", "class", "algorithm", "context", None]
+
+def _get_available_providers(
+    models: Sequence[Union[DiscoveredModel, Dict[str, Any]]]
+) -> List[str]:
+    """Return unique providers based on model structure."""
+    providers = set()
+    for m in models:
+        if m.get("family"):
+            providers.add("lmstudio")
+        elif m.get("name"):
+            providers.add("ollama")
+    return list(providers)
+
 
 async def discover_models_only() -> None:
     """Discover available models without benchmarking."""
@@ -535,7 +553,8 @@ async def interactive_main() -> None:
             console.print(f"[red]Error during cleanup: {e}[/red]")
             
     try:
-        with Live(layout.layout, refresh_per_second=10, screen=True):
+        # Define `live` within the `interactive_main` function
+        with Live(layout.layout, refresh_per_second=10, screen=True) as live:
             layout.prompt.add_message("Welcome to rooBroker Interactive Mode!")
             layout.prompt.add_message("Select an option (1-8) to begin...")
             layout.prompt.set_status("Ready")
@@ -545,7 +564,7 @@ async def interactive_main() -> None:
                 while running:
                     # Read a single keypress without requiring Enter
                     key = read_single_key()
-                    
+
                     if current_menu == "main":
                         if key == '1':
                             # Discover models
@@ -617,7 +636,60 @@ async def interactive_main() -> None:
                             layout.prompt.add_message(
                                 f"Select a model source (current: {app_state['benchmark_config']['model_source']})"
                             )
-                        # ...handle other config options...
+                        # 2 = Select Provider
+                        elif key == '2':
+                            # determine model list
+                            source = app_state['benchmark_config']['model_source']
+                            if source == 'discovered':
+                                models_list = discovered_models
+                            elif source == 'state':
+                                try:
+                                    models_list = await asyncio.to_thread(
+                                        load_models_as_list, ".modelstate.json", console
+                                    )
+                                except FileNotFoundError:
+                                    layout.prompt.add_message("[red]State file not found.[/red]")
+                                    models_list = []
+                            else:
+                                models_list = []
+                            # detect providers
+                            provs = _get_available_providers(models_list)
+                            if not provs:
+                                layout.prompt.add_message(
+                                    "[red]Cannot select provider: No models found for the selected source.[/red]"
+                                )
+                            elif len(provs) == 1:
+                                app_state['benchmark_config']['provider'] = provs[0]
+                                layout.prompt.add_message(
+                                    f"[green]Provider automatically set to: {provs[0]}[/green]"
+                                )
+                            else:
+                                # multi-provider: build menu
+                                app_state['benchmark_config']['provider_options'] = provs
+                                opts = [f"{i+1}. Use {p.capitalize()}" 
+                                        for i,p in enumerate(provs)]
+                                opts.append(f"{len(provs)+1}. Back")
+                                layout.menu.options = opts
+                                layout.menu.selected = 0
+                                current_menu = "benchmark_provider_select"
+                                layout.prompt.add_message(
+                                    f"Current provider: {app_state['benchmark_config']['provider']}"
+                                )
+                        # 3 = Filter Benchmarks
+                        elif key == '3':
+                            current_menu = "benchmark_filters"
+                            filter_menu_options = [
+                                "1. Set Tags",
+                                "2. Set Difficulty",
+                                "3. Set Type",
+                                "4. Clear Filters",
+                                "5. Back to Benchmark Config"
+                            ]
+                            layout.menu.options = filter_menu_options
+                            layout.menu.selected = 0
+                            layout.prompt.add_message(
+                                f"Current filters: {app_state['benchmark_config'].get('filters', {})}"
+                            )
                         elif key == '4':
                             current_menu = "benchmark_submenu"
                             layout.menu.show_benchmark_submenu()
@@ -638,6 +710,60 @@ async def interactive_main() -> None:
                         current_menu = "benchmark_config"
                         layout.menu.show_benchmark_config_menu()
             
+                    elif current_menu == "benchmark_provider_select":
+                        # handle dynamic provider options
+                        if key.isdigit():
+                            idx = int(key) - 1
+                            opts = app_state['benchmark_config']['provider_options']
+                            if idx < len(opts):
+                                sel = opts[idx]
+                                app_state['benchmark_config']['provider'] = sel
+                                layout.prompt.add_message(f"[green]Provider set to: {sel}[/green]")
+                            elif idx == len(opts):
+                                # back
+                                pass
+                            else:
+                                layout.prompt.add_message("[red]Invalid choice.[/red]")
+                                continue
+                        # return to config menu
+                        current_menu = "benchmark_config"
+                        layout.menu.show_benchmark_config_menu()
+                    
+                    elif current_menu == "benchmark_filters":
+                        filters = app_state['benchmark_config'].setdefault('filters', {})
+                        if key == '1':  # Set Tags
+                            console.print(f"Current tags: {filters.get('tags', [])}")
+                            tags_str = console.input("Enter new tags (comma-separated, blank to clear): ")
+                            console.print("[dim]Input complete.[/dim]")  # Indicate input completion
+                            if tags_str.strip():
+                                filters['tags'] = [tag.strip().lower() for tag in tags_str.split(",")]
+                                layout.prompt.add_message(f"[green]Tags filter set to: {filters['tags']}[/green]")
+                            else:
+                                filters['tags'] = []
+                                layout.prompt.add_message("[green]Tags filter cleared.[/green]")
+                        elif key == '2':  # Set Difficulty
+                            current_difficulty = filters.get('difficulty')
+                            idx = (difficulties.index(current_difficulty) + 1) % len(difficulties)
+                            new_difficulty = difficulties[idx]
+                            filters['difficulty'] = new_difficulty
+                            layout.prompt.add_message(
+                                f"[green]Difficulty filter set to: {new_difficulty or 'None'}[/green]"
+                            )
+                        elif key == '3':  # Set Type
+                            current_type = filters.get('type')
+                            idx = (types.index(current_type) + 1) % len(types)
+                            new_type = types[idx]
+                            filters['type'] = new_type
+                            layout.prompt.add_message(
+                                f"[green]Type filter set to: {new_type or 'None'}[/green]"
+                            )
+                        elif key == '4':  # Clear Filters
+                            app_state['benchmark_config']['filters'] = {}
+                            layout.prompt.add_message("[green]All filters cleared.[/green]")
+                        elif key == '5':  # Back
+                            current_menu = "benchmark_config"
+                            layout.menu.show_benchmark_config_menu()
+
             except KeyboardInterrupt:
                 console.print("\n[yellow]Ctrl+C detected. Exiting...[/yellow]")
                 _cleanup_resources()  # Use the helper function for consistency
