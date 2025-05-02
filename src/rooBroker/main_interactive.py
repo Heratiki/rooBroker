@@ -493,14 +493,137 @@ async def run_filtered_benchmarks(filter_criteria: dict) -> None:
     layout.menu.show_main_menu()
 
 
+async def run_benchmarks_with_config() -> None:
+    """Run benchmarks based on the configuration in app_state."""
+    global app_state, discovered_models, benchmark_results, current_menu
+
+    layout.prompt.add_message("[yellow]Starting benchmark execution...[/yellow]")
+    layout.prompt.set_status("Preparing benchmarks...")
+
+    # Model selection
+    model_source = app_state['benchmark_config'].get('model_source', 'discovered')
+    models_to_run: List[DiscoveredModel] = []
+
+    if model_source == 'discovered':
+        models_to_run = discovered_models
+        layout.prompt.add_message("[green]Using discovered models for benchmarking.[/green]")
+    elif model_source == 'state':
+        try:
+            raw_models = await asyncio.to_thread(load_models_as_list, ".modelstate.json", console)
+            models_to_run = [DiscoveredModel(**model) for model in raw_models]
+            if not models_to_run:
+                layout.prompt.add_message("[yellow]No models found in state file.[/yellow]")
+                return
+            layout.prompt.add_message("[green]Loaded models from state file.[/green]")
+        except FileNotFoundError:
+            layout.prompt.add_message("[red]State file not found. Save model state first.[/red]")
+            return
+    elif model_source == 'manual':
+        console.show_cursor(True)
+        ids_str = console.input("Enter model IDs to benchmark (comma-separated): ")
+        console.show_cursor(False)
+        parsed_ids = [mid.strip() for mid in ids_str.split(',') if mid.strip()]
+        if parsed_ids:
+            models_to_run = [{"id": mid, "name": mid} for mid in parsed_ids]
+            layout.prompt.add_message("[green]Using manually entered model IDs for benchmarking.[/green]")
+        else:
+            layout.prompt.add_message("[red]No valid model IDs entered. Aborting.[/red]")
+            return
+
+    if not models_to_run:
+        layout.prompt.add_message("[red]No models selected or found.[/red]")
+        return
+
+    # Provider client selection
+    provider_name = app_state['benchmark_config'].get('provider')
+    if provider_name is None:
+        providers_detected = _get_available_providers(models_to_run)
+        if len(providers_detected) == 1:
+            provider_name = providers_detected[0]
+            app_state['benchmark_config']['provider'] = provider_name
+        else:
+            layout.prompt.add_message("[red]Provider not selected or ambiguous. Aborting.[/red]")
+            return
+
+    if provider_name == 'lmstudio':
+        client = LMStudioClient()
+    elif provider_name == 'ollama':
+        client = OllamaClient()
+    else:
+        layout.prompt.add_message("[red]Invalid provider selected. Aborting.[/red]")
+        return
+
+    layout.prompt.add_message(f"[green]Using provider: {provider_name}.[/green]")
+
+    # Benchmark filtering
+    all_benchmarks = load_benchmarks_from_directory("./benchmarks")
+    filters = app_state['benchmark_config'].get('filters', {})
+    benchmarks_to_run = [
+        bm for bm in all_benchmarks
+        if (not filters.get('tags') or any(tag in bm.get('tags', []) for tag in filters['tags']))
+        and (not filters.get('difficulty') or bm.get('difficulty') == filters['difficulty'])
+        and (not filters.get('type') or bm.get('type') == filters['type'])
+    ]
+
+    if not benchmarks_to_run:
+        layout.prompt.add_message("[red]No benchmarks match filters. Aborting.[/red]")
+        return
+
+    layout.prompt.add_message(f"[green]Selected {len(benchmarks_to_run)} benchmarks to run.[/green]")
+
+    # Run parameters
+    num_samples = app_state['benchmark_config'].get('samples', 20)
+    verbose = app_state['benchmark_config'].get('verbose', False)
+    layout.prompt.add_message(f"[green]Number of samples: {num_samples}, Verbose: {verbose}.[/green]")
+
+    # Execute benchmarks
+    layout.prompt.set_status("Running benchmarks...")
+    benchmark_results.clear()
+
+    try:
+        with Progress(
+            TextColumn("[bold blue]{task.description}"), BarColumn(),
+            MofNCompleteColumn(), TimeRemainingColumn(),
+            console=console, transient=True
+        ) as progress:
+            results = await asyncio.to_thread(
+                run_standard_benchmarks,
+                client=client,
+                models_to_benchmark=models_to_run,
+                benchmarks_to_run=benchmarks_to_run,
+                progress=progress,
+                num_samples=num_samples,
+                verbose=verbose
+            )
+            benchmark_results.extend(results)
+        layout.prompt.add_message("[green]Benchmark run complete.[/green]")
+    except Exception as e:
+        layout.prompt.add_message(f"[red]Error during benchmark execution: {str(e)}[/red]")
+    finally:
+        current_menu = "main"
+        layout.menu.show_main_menu()
+
+
+def _cleanup_resources() -> None:
+    """Clean up any resources before exiting."""
+    global proxy_server, proxy_stop_function
+    
+    if proxy_stop_function:
+        try:
+            proxy_stop_function()
+            proxy_server = None
+            proxy_stop_function = None
+        except Exception as e:
+            console.print(f"[yellow]Warning: Error while stopping proxy: {str(e)}[/yellow]")
+
+
 # Map menu options to their corresponding functions
 # Type hint for the dictionary values
 ActionType = Callable[[], Awaitable[None]]
 
 MENU_ACTIONS: Dict[int, ActionType] = {
     1: discover_models_only,
-    2: benchmark_models_only,
-    3: manual_save_state,
+    3: run_benchmarks_with_config,
     4: update_roomodes_action,
     5: run_all_steps,
     6: view_benchmark_results,
@@ -539,259 +662,103 @@ async def handle_menu_choice(choice: int) -> bool:
     return True
 
 
+async def handle_benchmark_option(key_num: int) -> None:
+    """Handle benchmark submenu options."""
+    if key_num == 1:
+        await benchmark_models_only()
+    elif key_num == 2:
+        # Run basic benchmarks
+        await run_filtered_benchmarks({"difficulty": "basic"})
+    elif key_num == 3:
+        # Run advanced benchmarks
+        await run_filtered_benchmarks({"difficulty": "advanced"})
+    elif key_num == 4:
+        # Run context benchmarks
+        await run_filtered_benchmarks({"type": "context"})
+        
+# Main interactive function 
 async def interactive_main() -> None:
-    global current_menu, app_state
-    """Main entry point for the interactive TUI."""
-    # Define cleanup helper function
-    def _cleanup_resources():
-        global proxy_stop_function
-        try:
-            if proxy_stop_function is not None:
-                console.print("[yellow]Stopping proxy server...[/yellow]")
-                proxy_stop_function()
-        except Exception as e:
-            console.print(f"[red]Error during cleanup: {e}[/red]")
-            
-    try:
-        # Define `live` within the `interactive_main` function
-        with Live(layout.layout, refresh_per_second=10, screen=True) as live:
-            layout.prompt.add_message("Welcome to rooBroker Interactive Mode!")
-            layout.prompt.add_message("Select an option (1-8) to begin...")
-            layout.prompt.set_status("Ready")
-            
-            running = True
-            try:
-                while running:
-                    # Read a single keypress without requiring Enter
-                    key = read_single_key()
-
-                    if current_menu == "main":
-                        if key == '1':
-                            # Discover models
-                            layout.menu.selected = 0  # Option 1 is at index 0
-                            await discover_models_only()
-                        elif key == '2':
-                            # Benchmark models
-                            current_menu = "benchmark_submenu"
-                            layout.menu.show_benchmark_submenu()
-                        elif key == '3':
-                            # Save state
-                            layout.menu.selected = 2  # Option 3 is at index 2
-                            await manual_save_state()
-                        elif key == '4':
-                            # Update roomodes
-                            layout.menu.selected = 3  # Option 4 is at index 3
-                            await update_roomodes_action()
-                        elif key == '5':
-                            # Run all steps
-                            layout.menu.selected = 4  # Option 5 is at index 4
-                            await run_all_steps()
-                        elif key == '6':
-                            # View benchmark results
-                            layout.menu.selected = 5  # Option 6 is at index 5
-                            await view_benchmark_results()
-                        elif key == '7':
-                            # Launch context proxy
-                            layout.menu.selected = 6  # Option 7 is at index 6
-                            await launch_context_proxy()
-                        elif key == '8':
-                            # Exit
-                            layout.menu.selected = 7  # Option 8 is at index 7
-                            _cleanup_resources()  # Clean up resources before exiting
-                            return  # Exit the program
-                        elif key == '\x1b':  # Escape key
-                            console.print("[yellow]Escape key pressed. Exiting...[/yellow]")
-                            _cleanup_resources()  # Clean up resources before exiting
-                            running = False
-                            break
-                        else:
-                            # Invalid key, show message
-                            layout.prompt.add_message("[red]Invalid key. Please press 1-8, or Q to quit.[/red]")
-                            layout.prompt.set_status("Invalid key pressed")
-            
-                    elif current_menu == "benchmark_submenu":
-                        if key == '1':
-                            await run_filtered_benchmarks({'all': True})
-                        elif key == '2':
-                            await run_filtered_benchmarks({'difficulty': 'basic', 'tags': ['python']})
-                        elif key == '3':
-                            await run_filtered_benchmarks({'difficulty': 'advanced', 'tags': ['python']})
-                        elif key == '4':
-                            await run_filtered_benchmarks({'type': 'context'})
-                        elif key == '5':
-                            current_menu = "main"
-                            layout.menu.show_main_menu()
-                        elif key == '6':  # new config option in submenu
-                            current_menu = "benchmark_config"
-                            layout.menu.show_benchmark_config_menu()
-                            layout.prompt.add_message(
-                                f"Current model source: {app_state['benchmark_config']['model_source']}"
-                            )
-                    
-                    elif current_menu == "benchmark_config":
-                        # 1 = Set Model Source
-                        if key == '1':
-                            current_menu = "benchmark_model_source"
-                            layout.menu.show_model_source_menu()
-                            layout.prompt.add_message(
-                                f"Select a model source (current: {app_state['benchmark_config']['model_source']})"
-                            )
-                        # 2 = Select Provider
-                        elif key == '2':
-                            # determine model list
-                            source = app_state['benchmark_config']['model_source']
-                            if source == 'discovered':
-                                models_list = discovered_models
-                            elif source == 'state':
-                                try:
-                                    models_list = await asyncio.to_thread(
-                                        load_models_as_list, ".modelstate.json", console
-                                    )
-                                except FileNotFoundError:
-                                    layout.prompt.add_message("[red]State file not found.[/red]")
-                                    models_list = []
-                            else:
-                                models_list = []
-                            # detect providers
-                            provs = _get_available_providers(models_list)
-                            if not provs:
-                                layout.prompt.add_message(
-                                    "[red]Cannot select provider: No models found for the selected source.[/red]"
-                                )
-                            elif len(provs) == 1:
-                                app_state['benchmark_config']['provider'] = provs[0]
-                                layout.prompt.add_message(
-                                    f"[green]Provider automatically set to: {provs[0]}[/green]"
-                                )
-                            else:
-                                # multi-provider: build menu
-                                app_state['benchmark_config']['provider_options'] = provs
-                                opts = [f"{i+1}. Use {p.capitalize()}" 
-                                        for i,p in enumerate(provs)]
-                                opts.append(f"{len(provs)+1}. Back")
-                                layout.menu.options = opts
-                                layout.menu.selected = 0
-                                current_menu = "benchmark_provider_select"
-                                layout.prompt.add_message(
-                                    f"Current provider: {app_state['benchmark_config']['provider']}"
-                                )
-                        # 3 = Filter Benchmarks
-                        elif key == '3':
-                            current_menu = "benchmark_filters"
-                            filter_menu_options = [
-                                "1. Set Tags",
-                                "2. Set Difficulty",
-                                "3. Set Type",
-                                "4. Clear Filters",
-                                "5. Back to Benchmark Config"
-                            ]
-                            layout.menu.options = filter_menu_options
-                            layout.menu.selected = 0
-                            layout.prompt.add_message(
-                                f"Current filters: {app_state['benchmark_config'].get('filters', {})}"
-                            )
-                        elif key == '4':
-                            current_menu = "benchmark_submenu"
-                            layout.menu.show_benchmark_submenu()
-                    
-                    elif current_menu == "benchmark_model_source":
-                        if key == '1':
-                            app_state['benchmark_config']['model_source'] = 'discovered'
-                            layout.prompt.add_message("[green]Model source set to: discovered[/green]")
-                        elif key == '2':
-                            app_state['benchmark_config']['model_source'] = 'state'
-                            layout.prompt.add_message("[green]Model source set to: state[/green]")
-                        elif key == '3':
-                            app_state['benchmark_config']['model_source'] = 'manual'
-                            layout.prompt.add_message("[yellow]Manual ID entry will be implemented later.[/yellow]")
-                        elif key == '4':
-                            pass  # back without change
-                        # return to config menu
-                        current_menu = "benchmark_config"
-                        layout.menu.show_benchmark_config_menu()
-            
-                    elif current_menu == "benchmark_provider_select":
-                        # handle dynamic provider options
-                        if key.isdigit():
-                            idx = int(key) - 1
-                            opts = app_state['benchmark_config']['provider_options']
-                            if idx < len(opts):
-                                sel = opts[idx]
-                                app_state['benchmark_config']['provider'] = sel
-                                layout.prompt.add_message(f"[green]Provider set to: {sel}[/green]")
-                            elif idx == len(opts):
-                                # back
-                                pass
-                            else:
-                                layout.prompt.add_message("[red]Invalid choice.[/red]")
-                                continue
-                        # return to config menu
-                        current_menu = "benchmark_config"
-                        layout.menu.show_benchmark_config_menu()
-                    
-                    elif current_menu == "benchmark_filters":
-                        filters = app_state['benchmark_config'].setdefault('filters', {})
-                        if key == '1':  # Set Tags
-                            console.print(f"Current tags: {filters.get('tags', [])}")
-                            tags_str = console.input("Enter new tags (comma-separated, blank to clear): ")
-                            console.print("[dim]Input complete.[/dim]")  # Indicate input completion
-                            if tags_str.strip():
-                                filters['tags'] = [tag.strip().lower() for tag in tags_str.split(",")]
-                                layout.prompt.add_message(f"[green]Tags filter set to: {filters['tags']}[/green]")
-                            else:
-                                filters['tags'] = []
-                                layout.prompt.add_message("[green]Tags filter cleared.[/green]")
-                        elif key == '2':  # Set Difficulty
-                            current_difficulty = filters.get('difficulty')
-                            idx = (difficulties.index(current_difficulty) + 1) % len(difficulties)
-                            new_difficulty = difficulties[idx]
-                            filters['difficulty'] = new_difficulty
-                            layout.prompt.add_message(
-                                f"[green]Difficulty filter set to: {new_difficulty or 'None'}[/green]"
-                            )
-                        elif key == '3':  # Set Type
-                            current_type = filters.get('type')
-                            idx = (types.index(current_type) + 1) % len(types)
-                            new_type = types[idx]
-                            filters['type'] = new_type
-                            layout.prompt.add_message(
-                                f"[green]Type filter set to: {new_type or 'None'}[/green]"
-                            )
-                        elif key == '4':  # Clear Filters
-                            app_state['benchmark_config']['filters'] = {}
-                            layout.prompt.add_message("[green]All filters cleared.[/green]")
-                        elif key == '5':  # Back
-                            current_menu = "benchmark_config"
-                            layout.menu.show_benchmark_config_menu()
-
-            except KeyboardInterrupt:
-                console.print("\n[yellow]Ctrl+C detected. Exiting...[/yellow]")
-                _cleanup_resources()  # Use the helper function for consistency
-            
-            layout.prompt.add_message("[green]Thank you for using rooBroker![/green]")
-            layout.prompt.set_status("Exited interactive mode")
+    global current_menu
     
-    except Exception as e:
-        console.print(f"[red]An unexpected error occurred in the main loop: {str(e)}[/red]")
-        # Potentially log the full traceback here
-        raise
+    # Create the live display
+    layout_renderable = layout.render()
+    
+    with Live(layout_renderable, console=console, screen=True, refresh_per_second=10) as live:
+        try:
+            # Show initial menu
+            layout.menu.show_main_menu()
+            
+            while True:
+                # Get a single keypress (normalized to lowercase)
+                key = read_single_key()
+                
+                # Handle quit command globally
+                if key.lower() == 'q':
+                    layout.prompt.add_message("[yellow]Exiting...[/yellow]")
+                    _cleanup_resources()
+                    break
+                
+                # Handle digit-based menu options
+                if key.isdigit():
+                    key_num = int(key)
+                    
+                    if current_menu == "main":
+                        if 1 <= key_num <= 8:
+                            if key_num == 8:  # Exit option
+                                layout.prompt.add_message("[yellow]Exiting...[/yellow]")
+                                _cleanup_resources()
+                                break
+                            # Other main menu options
+                            if key_num in MENU_ACTIONS:
+                                await MENU_ACTIONS[key_num]()
+                            else:
+                                layout.prompt.set_status("Invalid option")
+                    
+                    # Handle other menus similarly
+                    elif current_menu == "benchmark_submenu":
+                        if 1 <= key_num <= 6:
+                            if key_num == 5:
+                                current_menu = "main"
+                                layout.menu.show_main_menu()
+                            elif key_num == 6:
+                                current_menu = "benchmark_config"
+                                layout.menu.show_benchmark_config_menu()
+                            else:
+                                await handle_benchmark_option(key_num)
+                    
+                    # ... other menu handlers ...
+                else:
+                    layout.prompt.set_status("Invalid key. Please press 1-8, or Q to quit.")
+                
+                # Update the live display
+                layout_renderable = layout.render()
+                live.update(layout_renderable)
+                
+                await asyncio.sleep(0.1)  # Small delay to prevent CPU hogging
+                
+        except Exception as e:
+            layout.prompt.add_message(f"[red]Error in menu handling: {str(e)}[/red]")
+            raise
 
 
 def main() -> int:
-    """
-    Main synchronous entry point for interactive mode.
-    
-    Returns:
-        int: Exit code (0 for success, non-zero for errors)
-    """
+    print("DEBUG: Starting main()") # Basic print for debugging
     try:
+        print("DEBUG: About to run interactive_main()")
         asyncio.run(interactive_main())
         return 0
     except KeyboardInterrupt:
-        # Primary cleanup happens in interactive_main before the exception propagates
+        print("DEBUG: KeyboardInterrupt caught")
         console.print("[yellow]Program terminated by keyboard interrupt.[/yellow]")
         return 1
     except Exception as e:
+        print(f"DEBUG: Exception caught: {str(e)}")
+        import traceback
+        traceback.print_exc()
         console.print(f"[red]Fatal Error: {str(e)}[/red]")
-        # Consider logging the traceback here for debugging
         return 1
+
+if __name__ == "__main__":
+    print("DEBUG: __main__ block entered")
+    import sys
+    sys.exit(main())

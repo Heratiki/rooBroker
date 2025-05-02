@@ -41,7 +41,7 @@ class MenuSection:
         self.options = [
             "1. Discover Models",
             "2. Benchmark Models",
-            "3. Save State",
+            "3. Run Configured Benchmarks",
             "4. Update Roomodes",
             "5. Run All Steps",
             "6. View Results",
@@ -163,47 +163,14 @@ class ModelsSection:
             box=box.ROUNDED
         )
 
-class BenchmarkingSection:
-    """Manages the benchmarking status section of the TUI."""
-    
-    def __init__(self):
-        self.current_model: Optional[str] = None
-        self.progress: float = 0.0
-        self.status: str = "Idle"
-        self.time_remaining: Optional[str] = None
-
-    def update_progress(self, model: str, progress: float, time_remaining: Optional[str] = None) -> None:
-        """Update the benchmarking progress."""
-        self.current_model = model
-        self.progress = progress
-        self.time_remaining = time_remaining
-
-    def __rich__(self) -> Panel:
-        """Return the rich panel containing the benchmarking status."""
-        if not self.current_model:
-            content = Text("No active benchmarking", style="dim")
-        else:
-            progress_bar = "█" * int(self.progress * 20) + "▒" * (20 - int(self.progress * 20))
-            content = Group(
-                Text(f"Benchmarking {self.current_model}..."),
-                Text(f"[{progress_bar}] {int(self.progress * 100)}%"),
-                Text(f"Time remaining: {self.time_remaining or 'calculating...'}")
-            )
-
-        return Panel(
-            content,
-            title="Benchmarking Status",
-            border_style="blue",
-            box=box.ROUNDED
-        )
-
 class PromptSection:
     """Manages the prompt improvement section of the TUI."""
     
     def __init__(self):
         self.messages: List[Text] = [] # Store Text objects directly
         self.max_messages = 8
-        self.status: Optional[str] = None
+        self._status: Optional[str] = None
+        self.benchmarking_status = "No active benchmarking"
 
     def add_message(self, message: str) -> None:
         """Add a new message to the prompt improvement section, parsing Rich markup."""
@@ -215,23 +182,32 @@ class PromptSection:
 
     def set_status(self, status: str) -> None:
         """Set the current status message to display at the top."""
-        self.status = status
+        self._status = status
 
     def clear_status(self) -> None:
         """Clear the current status message."""
-        self.status = None
+        self._status = None
 
-    def __rich__(self) -> Panel:
-        """Return the rich panel containing the prompt improvement messages."""
+    def get_benchmarking_panel(self) -> Panel:
+        """Return the benchmarking status panel."""
+        return Panel(
+            Text(self.benchmarking_status),
+            title="Benchmarking Status",
+            border_style="blue",
+            box=box.ROUNDED
+        )
+
+    def get_prompt_panel(self) -> Panel:
+        """Return the prompt improvement panel."""
         messages_to_display = []
         
         # Add status if set
-        if self.status:
-            messages_to_display.append(Text(self.status, style="bold cyan"))
+        if self._status:
+            messages_to_display.append(Text(self._status, style="bold cyan"))
             messages_to_display.append(Text("―" * 30, style="dim"))  # Separator
             
         # Add regular messages (already Text objects)
-        messages_to_display.extend(self.messages) # No need to wrap in Text() again
+        messages_to_display.extend(self.messages)
         
         content = Group(*messages_to_display)
         return Panel(
@@ -241,47 +217,57 @@ class PromptSection:
             box=box.ROUNDED
         )
 
-class InteractiveLayout:
-    """Main class managing the entire TUI layout."""
-    
-    def __init__(self):
-        self.console = Console()
-        self.layout = Layout()
-        
-        # Create the main sections
-        self.menu = MenuSection()
-        self.models = ModelsSection(console=self.console)
-        self.benchmarking = BenchmarkingSection()
-        self.prompt = PromptSection()
-        
-        # Configure the layout
-        self._setup_layout()
+    def __rich__(self) -> Layout:
+        """Return the complete prompt section layout."""
+        section = Layout()
+        section.split_row(
+            Layout(self.get_benchmarking_panel(), name="benchmarking", ratio=1),
+            Layout(self.get_prompt_panel(), name="prompt", ratio=2),
+        )
+        return section
 
-    def _setup_layout(self) -> None:
-        """Set up the initial layout structure."""
-        # Split main layout vertically (70/30)
-        self.layout.split_column(
-            Layout(name="top", ratio=70),
-            Layout(name="bottom", ratio=30)
-        )
+class InteractiveLayout:
+    """Interactive terminal UI layout."""
+    def __init__(self):
+        """Initialize layout components."""
+        self.console = Console()
+        self.menu = MenuSection()
+        self.models = ModelsSection(self.console)
+        self.prompt = PromptSection()
+        self.layout = Layout()
+        self._setup_layout()
         
-        # Split top section horizontally (30/70)
-        self.layout["top"].split_row(
-            Layout(name="menu", ratio=30),
-            Layout(name="models", ratio=70)
+    def _setup_layout(self):
+        """Set up the layout structure."""
+        self.layout.split(
+            Layout(name="menu"),
+            Layout(name="content"),
+            Layout(name="status")
         )
+
+    def __rich__(self) -> Layout:
+        """Render layout for rich library."""
+        # Create main layout
+        layout = Layout()
         
-        # Split bottom section horizontally (50/50)
-        self.layout["bottom"].split_row(
-            Layout(name="benchmarking", ratio=50),
-            Layout(name="prompt", ratio=50)
-        )
+        # Split into upper and lower sections
+        upper = Layout(name="upper", ratio=2)
+        lower = Layout(name="lower", ratio=1)
+        layout.split(upper, lower)
         
-        # Assign sections to layout areas
-        self.layout["menu"].update(self.menu)
-        self.layout["models"].update(self.models)
-        self.layout["benchmarking"].update(self.benchmarking)
-        self.layout["prompt"].update(self.prompt)
+        # Split upper section into menu and models
+        menu_section = Layout(self.menu, name="menu", ratio=1)
+        models_section = Layout(self.models, name="models", ratio=2)
+        upper.split_row(menu_section, models_section)
+        
+        # Add prompt section to lower
+        lower.update(self.prompt)
+        
+        return layout
+
+    def render(self):
+        """Render the layout for the Live display."""
+        return self.layout
 
     def check_terminal_size(self) -> bool:
         """Check if the terminal is large enough for the UI."""

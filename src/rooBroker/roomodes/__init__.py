@@ -5,7 +5,6 @@ Provides utilities for generating and updating Roo Code mode configurations.
 from .utils import slugify
 from .mode_generation import generate_mode_entry, create_boomerang_mode
 from .analysis_parsing import extract_strategy_from_analysis, extract_core_insight, extract_coding_insights
-from .update import update_roomodes, update_roo_code_settings
 
 __all__ = [
     'slugify',
@@ -14,6 +13,4 @@ __all__ = [
     'extract_strategy_from_analysis',
     'extract_core_insight',
     'extract_coding_insights',
-    'update_roomodes',
-    'update_roo_code_settings'
 ]
