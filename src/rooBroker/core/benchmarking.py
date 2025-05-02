@@ -498,10 +498,28 @@ def run_standard_benchmarks(
                 if sample_evals:
                     bench_result['avg_test_pass_rate'] = sum(e.get('test_pass_rate', 0.0) for e in sample_evals) / len(sample_evals)
                     bench_result['pass_all_count'] = sum(1 for e in sample_evals if e.get('pass_all', False))
+
+                    # Calculate pass@k metrics
+                    n_samples = len(sample_evals)
+                    n_correct = bench_result['pass_all_count']
+                    k_values = [1, 5, 10]  # Define desired k values
+                    pass_at_k_scores = {}
+
+                    for k in k_values:
+                        pass_at_k_scores[f"pass@{k}"] = calculate_pass_at_k(n_samples, n_correct, k)
+
+                    bench_result['pass_at_k'] = pass_at_k_scores
+                    bench_result['successful_samples'] = n_correct
+                    bench_result['total_samples'] = n_samples
+
                 else:
                     bench_result['avg_test_pass_rate'] = 0.0
                     bench_result['pass_all_count'] = 0
-                logger.debug(f"Benchmark '{bench['name']}' completed. Avg TPR: {bench_result['avg_test_pass_rate']:.2f}, Pass All Count: {bench_result['pass_all_count']}/{num_samples}")
+                    bench_result['pass_at_k'] = {}
+                    bench_result['successful_samples'] = 0
+                    bench_result['total_samples'] = 0
+
+                logger.debug(f"Benchmark '{bench['name']}' completed. Avg TPR: {bench_result['avg_test_pass_rate']:.2f}, Pass All Count: {bench_result['pass_all_count']}/{num_samples}, Pass@K: {bench_result['pass_at_k']}")
 
                 model_result["task_results"].append(bench_result)
 
