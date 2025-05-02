@@ -70,8 +70,8 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
         code_to_execute = code_match.group(1).strip() if code_match else response.strip()
         logger.debug(f"Code to execute: {repr(code_to_execute)}") # Log processed code
 
-        if verbose:
-            print("Processed response:", code_to_execute)
+        # if verbose: # This print was outside the verbose check
+        #     print("Processed response:", code_to_execute)
 
         # Evaluation logic based on evaluation_method
         if bench["evaluation_method"] == "string_contains":
@@ -93,8 +93,8 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                 results["error"] = "No expected value found in benchmark definition"
                 results["pass_all"] = False
                 results["test_pass_rate"] = 0.0
-                if verbose:
-                    print("Error: No expected value found in benchmark definition")
+                # if verbose: # This print was outside the verbose check
+                #     print("Error: No expected value found in benchmark definition")
                 return results
             
             logger.debug(f"DEBUG: String Contains - Expected Type: {type(expected)}, Expected Value: {repr(expected)}")
@@ -130,8 +130,8 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                     "}"
                 )
 
-                if verbose:
-                    print("Generated function:", func_def_str)
+                # if verbose: # This print was outside the verbose check
+                #     print("Generated function:", func_def_str)
 
                 try:
                     # Redirect stdout during exec
@@ -146,8 +146,8 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                     test_results.append(passed)
                     error_msg = f"Exec_check_state - Test Case {i+1}: Execution error: {e}"
                     logger.debug(error_msg) # Log error at debug level
-                    if verbose:
-                        print(error_msg)
+                    # if verbose: # This print was outside the verbose check
+                    #     print(error_msg)
 
             results["test_results"] = test_results
             results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
@@ -215,8 +215,8 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
                     # passed remains False
                     error_msg = f"Exec_call_func - Test Case {i+1}: Execution error: {e}"
                     logger.debug(error_msg) # Log error at debug level
-                    if verbose:
-                        print(error_msg)
+                    # if verbose: # This print was outside the verbose check
+                    #     print(error_msg)
                 finally:
                     test_results.append(passed) # Append final pass/fail status
 
@@ -245,18 +245,18 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
 
                     logger.debug(f"Eval_expression - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case['expected']}, Got: {result})")
 
-                    if verbose:
-                        print(f"Executed code block:\n{code_to_execute}")
-                        print(f"Result: {result}")
-                        print(f"Expected: {test_case['expected']}")
-                        print(f"Test passed: {passed}")
+                    # if verbose: # These prints were outside the verbose check
+                    #     print(f"Executed code block:\n{code_to_execute}")
+                    #     print(f"Result: {result}")
+                    #     print(f"Expected: {test_case['expected']}")
+                    #     print(f"Test passed: {passed}")
 
                 except Exception as e:
                     # Log and handle execution errors
                     error_msg = f"Eval_expression - Test Case {i+1}: Execution error: {str(e)}"
                     logger.debug(error_msg)  # Log error at debug level
-                    if verbose:
-                        print(error_msg)
+                    # if verbose: # This print was outside the verbose check
+                    #     print(error_msg)
 
                 finally:
                     test_results.append(passed)  # Append final pass/fail status
@@ -330,8 +330,8 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
     except Exception as e:
         logger.exception(f"General evaluation error for benchmark '{bench.get('name')}': {str(e)}") # Use logger.exception
         results["error"] = f"General evaluation error: {str(e)}"
-        if verbose:
-            print("General evaluation error:", e)
+        # if verbose: # This print was outside the verbose check
+        #     print("General evaluation error:", e)
 
     logger.debug(f"Evaluation Results before return for '{bench.get('name')}': {results}")
     return results
@@ -426,8 +426,8 @@ def run_standard_benchmarks(
 
         # Skip embedding models
         if "embed" in model_id.lower() or "embedding" in model_id.lower():
-            if verbose:
-                print(f"Skipping embedding model: {model_id}")
+            # if verbose: # This print was outside the verbose check
+            #     print(f"Skipping embedding model: {model_id}")
             continue
 
         model_result = {
@@ -480,7 +480,7 @@ def run_standard_benchmarks(
 
                         # Evaluate the response - MODIFY THIS LINE
                         # Don't pass verbose to evaluate_response even when verbose flag is on
-                        evaluation = evaluate_response(response_content, bench, False)
+                        evaluation = evaluate_response(response_content, bench, False) # Keep verbose as False here
 
                         # Store sample result
                         bench_result["samples"].append({
