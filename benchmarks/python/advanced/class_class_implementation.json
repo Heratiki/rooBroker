@@ -17,6 +17,6 @@
         "encapsulation": true
     },
     "temperature": 0.2,
-    "evaluation_method": "exec_call_func",
+    "evaluation_method": "class_eval",
     "tags": ["python", "advanced", "class", "data-structure"]
 }

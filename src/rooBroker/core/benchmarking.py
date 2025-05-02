@@ -265,6 +265,51 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
             logger.debug(f"Eval_expression - Final Results: {results}") # Log final results
             return results
 
+        elif bench["evaluation_method"] == "class_eval":
+            test_results = []
+            try:
+                # Execute the provided code to define the class in a local environment
+                local_env = {}
+                exec(code_to_execute, local_env)
+
+                # Find the class definition in the local environment
+                class_name = next((name for name, obj in local_env.items() if isinstance(obj, type)), None)
+                if not class_name:
+                    raise ValueError("No class definition found in the provided code.")
+
+                class_def = local_env[class_name]
+
+                for test_case in bench["test_cases"]:
+                    instance = class_def()  # Instantiate the class
+                    result = None
+
+                    try:
+                        for method_call in test_case["sequence"]:
+                            try:
+                                # Attempt to execute the method call
+                                result = eval(f"instance.{method_call}", {"instance": instance})
+                            except AttributeError as e:
+                                # Handle potential method name mismatches (e.g., camelCase to snake_case)
+                                snake_case_call = re.sub(r'(?<!^)(?=[A-Z])', '_', method_call).lower()
+                                result = eval(f"instance.{snake_case_call}", {"instance": instance})
+
+                        # Compare the result of the last operation with the expected value
+                        test_results.append(result == test_case["expected"])
+                    except Exception as e:
+                        logger.debug(f"class_eval - Test Case Error: {e}")
+                        test_results.append(False)
+
+                # Calculate pass rate and overall pass status
+                results["test_results"] = test_results
+                results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
+                results["pass_all"] = all(test_results)
+
+            except Exception as e:
+                logger.exception(f"class_eval - General Error: {e}")
+                results["error"] = str(e)
+
+            return results
+
         else:
             logger.error(f"Unrecognized evaluation method: {bench['evaluation_method']}") # Log as error
             results["error"] = f"Unrecognized evaluation method: {bench['evaluation_method']}"
