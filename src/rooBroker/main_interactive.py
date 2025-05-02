@@ -14,6 +14,7 @@ from rich.live import Live
 from rich.prompt import IntPrompt, Prompt
 from rich.console import Console
 from rich.text import Text
+from rich.progress import Progress, TextColumn, BarColumn, MofNCompleteColumn, TimeRemainingColumn
 
 import sys
 # Cross-platform single-key reader
@@ -196,17 +197,30 @@ async def benchmark_models_only() -> None:
         # Clear previous benchmark results if any
         benchmark_results.clear()
 
-        # Run benchmarks
-        benchmark_results.extend(
-            await asyncio.to_thread(
+        # Setup Progress display within the Live context
+        # Note: Using console.print inside Live might interfere.
+        # Consider adding a dedicated panel in the layout for progress,
+        # or temporarily stopping the Live display during benchmarking.
+        # For simplicity, we'll print progress outside the Live TUI for now.
+        with Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeRemainingColumn(),
+            console=console,  # Use the main console
+            transient=True  # Clear progress on exit
+        ) as progress:
+            # Run benchmarks using asyncio.to_thread
+            results = await asyncio.to_thread(
                 run_standard_benchmarks,
                 client,
                 discovered_models,
                 benchmarks_to_run=benchmarks,
+                progress=progress,  # Pass the progress object
                 num_samples=3,  # Reduced samples for faster results
-                verbose=True
+                verbose=False # Keep verbose off for interactive mode unless specifically needed
             )
-        )
+            benchmark_results.extend(results)
 
         layout.prompt.add_message("[green]Benchmarking process completed successfully.[/green]")
         layout.prompt.set_status("Benchmarking completed")
@@ -441,41 +455,78 @@ async def handle_menu_choice(choice: int) -> bool:
 
 async def interactive_main() -> None:
     """Main entry point for the interactive TUI."""
+    # Define cleanup helper function
+    def _cleanup_resources():
+        global proxy_stop_function
+        try:
+            if proxy_stop_function is not None:
+                console.print("[yellow]Stopping proxy server...[/yellow]")
+                proxy_stop_function()
+        except Exception as e:
+            console.print(f"[red]Error during cleanup: {e}[/red]")
+            
     try:
-        with Live(layout.layout, refresh_per_second=10, screen=True):            # Initialize empty models panel
+        with Live(layout.layout, refresh_per_second=10, screen=True):
             layout.prompt.add_message("Welcome to rooBroker Interactive Mode!")
             layout.prompt.add_message("Select an option (1-8) to begin...")
             layout.prompt.set_status("Ready")
             
             running = True
-            while running:
-                # Read a single keypress without requiring Enter
-                key = await asyncio.get_event_loop().run_in_executor(None, read_single_key)
-                # Handle Ctrl+C (Windows returns '\x03')
-                if key == '\x03':
-                    layout.prompt.add_message("\n[yellow]Ctrl+C detected. Exiting...[/yellow]")
-                    running = False
-                    await handle_menu_choice(8)
-                    break
-                # Handle scroll and quit keys
-                if key.lower() in ['w', 's', 'q']:
-                    # For 'w'/'s', scrolling; for 'q', quit
-                    cont = layout.handle_input(key)
-                    if not cont:
+            try:
+                while running:
+                    # Read a single keypress without requiring Enter
+                    key = read_single_key()
+                    
+                    if key == '1':
+                        # Discover models
+                        layout.menu.selected = 0  # Option 1 is at index 0
+                        await discover_models_only()
+                    elif key == '2':
+                        # Benchmark models
+                        layout.menu.selected = 1  # Option 2 is at index 1
+                        await benchmark_models_only()
+                    elif key == '3':
+                        # Save state
+                        layout.menu.selected = 2  # Option 3 is at index 2
+                        await manual_save_state()
+                    elif key == '4':
+                        # Update roomodes
+                        layout.menu.selected = 3  # Option 4 is at index 3
+                        await update_roomodes_action()
+                    elif key == '5':
+                        # Run all steps
+                        layout.menu.selected = 4  # Option 5 is at index 4
+                        await run_all_steps()
+                    elif key == '6':
+                        # View benchmark results
+                        layout.menu.selected = 5  # Option 6 is at index 5
+                        await view_benchmark_results()
+                    elif key == '7':
+                        # Launch context proxy
+                        layout.menu.selected = 6  # Option 7 is at index 6
+                        await launch_context_proxy()
+                    elif key == '8':
+                        # Exit
+                        layout.menu.selected = 7  # Option 8 is at index 7
+                        _cleanup_resources()  # Clean up resources before exiting
+                        return  # Exit the program
+                    elif key == '\x1b':  # Escape key
+                        console.print("[yellow]Escape key pressed. Exiting...[/yellow]")
+                        _cleanup_resources()  # Clean up resources before exiting
                         running = False
-                        await handle_menu_choice(8)
                         break
-                    continue
-                # Handle numeric menu selections
-                if key.isdigit():
-                    choice = int(key)
-                    running = await handle_menu_choice(choice)
-                    continue
-                # Ignore other keys
-                # Optionally, display instruction hint
-                layout.prompt.add_message("[dim]Press 1-8 to select, W/S to scroll, Q to quit[/dim]")
-                layout.prompt.set_status("Waiting for input")
-                
+                    else:
+                        # Invalid key, show message
+                        layout.prompt.add_message("[red]Invalid key. Please press 1-8, or Q to quit.[/red]")
+                        layout.prompt.set_status("Invalid key pressed")
+            
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Ctrl+C detected. Exiting...[/yellow]")
+                _cleanup_resources()  # Use the helper function for consistency
+            
+            layout.prompt.add_message("[green]Thank you for using rooBroker![/green]")
+            layout.prompt.set_status("Exited interactive mode")
+    
     except Exception as e:
         console.print(f"[red]An unexpected error occurred in the main loop: {str(e)}[/red]")
         # Potentially log the full traceback here
@@ -493,8 +544,8 @@ def main() -> int:
         asyncio.run(interactive_main())
         return 0
     except KeyboardInterrupt:
-        # Already handled in interactive_main, just ensure clean exit code
-        console.print("\n[yellow]Program terminated by user.[/yellow]")
+        # Primary cleanup happens in interactive_main before the exception propagates
+        console.print("[yellow]Program terminated by keyboard interrupt.[/yellow]")
         return 1
     except Exception as e:
         console.print(f"[red]Fatal Error: {str(e)}[/red]")

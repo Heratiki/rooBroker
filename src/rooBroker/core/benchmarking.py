@@ -63,8 +63,10 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
         # logger.debug(f"DEBUG: Bench data: {bench}") # Keep this if needed, but can be verbose
 
         # Extract code block or use raw response
-        code_block_pattern = r"```(?:python)?\s*([\s\S]*?)\s*```"
-        code_match = re.search(code_block_pattern, response)
+        code_block_pattern = r"""
+        ```(?:python)?\s*([\s\S]*?)\s*```
+        """
+        code_match = re.search(code_block_pattern, response, re.VERBOSE)
         code_to_execute = code_match.group(1).strip() if code_match else response.strip()
         logger.debug(f"Code to execute: {repr(code_to_execute)}") # Log processed code
 

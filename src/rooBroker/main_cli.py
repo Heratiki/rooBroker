@@ -7,6 +7,7 @@ import sys
 from typing import List, NoReturn, Optional, cast, Dict, Any
 from pathlib import Path
 from rich.progress import Progress, TextColumn, BarColumn, MofNCompleteColumn, TimeRemainingColumn
+from rich.console import Console  # Import Console
 
 from rooBroker.core.benchmarking import run_standard_benchmarks, load_benchmarks_from_directory
 from rooBroker.core.discovery import discover_models_with_status
@@ -18,6 +19,9 @@ from rooBroker.interfaces.base import ModelProviderClient
 from rooBroker.roo_types.discovery import DiscoveredModel
 from rooBroker.core.mode_management import update_room_modes
 from rooBroker.core.log_config import logger
+
+# Instantiate Console
+console = Console()
 
 
 def handle_discover(args: argparse.Namespace) -> None:
@@ -302,24 +306,24 @@ def cli_main(argv: List[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    if hasattr(args, "func"):
-        args.func(args)
-        return 0
-    else:
-        parser.print_help()
-        return 1
-
-
-def main() -> NoReturn:
-    """
-    Main entry point for CLI mode.
-
-    Returns:
-        NoReturn: The function exits the program with an appropriate status code.
-    """
-    # TODO: Implement CLI logic here
-    return exit(0)  # Temporary return until CLI implementation
+    try:
+        if hasattr(args, "func"):
+            args.func(args) # Execute the command function
+            return 0
+        else:
+            # Handle cases where no command was provided or func is not set
+            parser.print_help()
+            return 1 # Return an error code if no command was run
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user.[/yellow]")
+        return 1 # Return specific code for interruption
+    except Exception as e:
+        # Log the exception for debugging purposes
+        logger.exception(f"An unexpected error occurred: {e}")
+        # Print a user-friendly error message
+        console.print(f"[red]Error: {str(e)}[/red]")
+        return 1 # Return a general error code
 
 
 if __name__ == "__main__":
-    sys.exit(cli_main())
+    sys.exit(cli_main()) # Call cli_main directly
