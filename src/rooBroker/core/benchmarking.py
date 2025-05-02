@@ -266,37 +266,47 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
             return results
 
         elif bench["evaluation_method"] == "class_eval":
+            logger.debug("Entering class_eval logic block.")
             test_results = []
             try:
                 # Execute the provided code to define the class in a local environment
                 local_env = {}
                 exec(code_to_execute, local_env)
+                logger.debug(f"Executed code. local_env keys: {list(local_env.keys())}")
 
                 # Find the class definition in the local environment
                 class_name = next((name for name, obj in local_env.items() if isinstance(obj, type)), None)
                 if not class_name:
+                    logger.debug("No class definition found in the provided code.")
                     raise ValueError("No class definition found in the provided code.")
 
+                logger.debug(f"Found class definition: {class_name}")
                 class_def = local_env[class_name]
 
-                for test_case in bench["test_cases"]:
+                logger.debug(f"Starting test case loop for {len(bench['test_cases'])} cases.")
+                for i, test_case in enumerate(bench["test_cases"]):
+                    logger.debug(f"Test Case {i+1}: Instantiating class {class_name}")
                     instance = class_def()  # Instantiate the class
                     result = None
 
                     try:
-                        for method_call in test_case["sequence"]:
+                        for call in test_case["sequence"]:
+                            logger.debug(f"Test Case {i+1}: Executing step: {call}")
                             try:
                                 # Attempt to execute the method call
-                                result = eval(f"instance.{method_call}", {"instance": instance})
+                                result = eval(f"instance.{call}", {"instance": instance})
                             except AttributeError as e:
                                 # Handle potential method name mismatches (e.g., camelCase to snake_case)
-                                snake_case_call = re.sub(r'(?<!^)(?=[A-Z])', '_', method_call).lower()
+                                snake_case_call = re.sub(r'(?<!^)(?=[A-Z])', '_', call).lower()
                                 result = eval(f"instance.{snake_case_call}", {"instance": instance})
 
+                        logger.debug(f"Test Case {i+1}: Sequence result: {result}")
                         # Compare the result of the last operation with the expected value
-                        test_results.append(result == test_case["expected"])
+                        passed = result == test_case["expected"]
+                        logger.debug(f"Test Case {i+1}: Comparison result: {passed}")
+                        test_results.append(passed)
                     except Exception as e:
-                        logger.debug(f"class_eval - Test Case Error: {e}")
+                        logger.debug(f"Test Case {i+1}: Error during execution: {e}")
                         test_results.append(False)
 
                 # Calculate pass rate and overall pass status
@@ -329,23 +339,21 @@ def calculate_pass_at_k(n_samples: int, n_correct: int, k: int) -> float:
     Calculate unbiased pass@k metric as per Chen et al. 2021:
     Probability of getting at least one correct solution in k attempts
     """
-    if n_samples < k:
+    if n_samples < k or k <= 0:
         return 0.0
-    if n_correct == 0:
+    if n_correct == n_samples:
+        return 1.0
+
+    failures = n_samples - n_correct
+    if failures < k:
+        return 1.0
+
+    try:
+        prob_all_failures = comb(failures, k) / comb(n_samples, k)
+        return 1.0 - prob_all_failures
+    except ValueError as e:
+        logger.error(f"Error calculating pass@k: {e}")
         return 0.0
-    
-    # Calculate probability using combinations
-    def n_choose_r(n: int, r: int) -> float:
-        return comb(n, r)
-    
-    # Probability of having at least 1 success in k trials
-    p = 1.0
-    for r in range(k):
-        p_r = (n_choose_r(n_samples - n_correct, r) * 
-               n_choose_r(n_correct, k - r) / n_choose_r(n_samples, k))
-        p -= p_r
-    
-    return p
 
 def aggregate_benchmark_results(
     model_result: Dict[str, Any],
@@ -466,15 +474,16 @@ def run_standard_benchmarks(
                             temperature=bench.get("temperature", 0.7)
                         )
                         response_content = response_data
-                        logger.debug(f"Model '{model_id}', Benchmark '{bench['name']}', Sample {sample_num+1} - Response received: {repr(response_content)}") # Log response
+                        logger.debug(f"Model '{model_id}', Benchmark '{bench['name']}', Sample {sample_num+1} - Response received: {repr(response_content)}")
 
-                        # Evaluate the response
-                        evaluation = evaluate_response(response_content, bench, verbose)
+                        # Evaluate the response - MODIFY THIS LINE
+                        # Don't pass verbose to evaluate_response even when verbose flag is on
+                        evaluation = evaluate_response(response_content, bench, False)
 
                         # Store sample result
                         bench_result["samples"].append({
                             "sample_num": sample_num + 1,
-                            "response": response_content, # Store raw response for potential later analysis
+                            "response": response_content,
                             "evaluation": evaluation
                         })
                     except Exception as client_err:

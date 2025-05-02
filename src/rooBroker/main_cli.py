@@ -119,31 +119,22 @@ def handle_benchmark(args: argparse.Namespace) -> None:
                 models_to_benchmark=models_to_benchmark,
                 benchmarks_to_run=benchmarks,
                 progress=progress,
-                num_samples=args.samples if args.samples else 20
+                num_samples=args.samples if args.samples else 20,
+                verbose=args.verbose
             )
 
             # Process benchmark results to calculate average test pass rates
             for result in benchmark_results:
-                task_results = result.get("task_results", [])
-                avg_scores = {
-                    "avg_score_statement": 0.0,
-                    "avg_score_function": 0.0,
-                    "avg_score_class": 0.0,
-                    "avg_score_algorithm": 0.0,
-                    "avg_score_context": 0.0
-                }
-                
-                # Group task results by type and calculate averages
-                type_scores = {key: [] for key in avg_scores.keys()}
-                for task in task_results:
+                type_scores = {"statement": [], "function": [], "class": [], "algorithm": [], "context": []}
+                for task in result.get("task_results", []):
+                    # Retrieve the task type and avg test pass rate for this task
                     task_type = task.get("type")
-                    test_pass_rate = task.get("test_pass_rate", 0.0)
-                    if task_type and f"avg_score_{task_type}" in type_scores:
-                        type_scores[f"avg_score_{task_type}"].append(test_pass_rate)
-                
-                for key, scores in type_scores.items():
-                    avg_scores[key] = sum(scores) / len(scores) if scores else 0.0
-                
+                    test_pass_rate = task.get("avg_test_pass_rate", 0.0)
+                    if task_type in type_scores:
+                        type_scores[task_type].append(test_pass_rate)
+                avg_scores = {}
+                for t, scores in type_scores.items():
+                    avg_scores[f"avg_score_{t}"] = sum(scores) / len(scores) if scores else 0.0
                 result.update(avg_scores)
 
             # Display Results
