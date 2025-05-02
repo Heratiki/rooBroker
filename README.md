@@ -597,3 +597,69 @@ When you specify `fileRegex` in a custom mode, you're creating a pattern that fi
 > Create a regex pattern that matches JavaScript files but excludes test files
 >
 > Roo will generate the appropriate pattern with proper escaping for JSON configuration.
+
+## Creating Benchmark Tasks
+
+Benchmarks are defined in JSON files placed in the `benchmarks/` directory. You can organize benchmarks into subdirectories (e.g., `benchmarks/python/`, `benchmarks/sql/`).
+
+### Benchmark JSON Structure
+
+Each benchmark file must conform to the schema defined in `roo_types/benchmark_schemas.py::BenchmarkTask`. Below are the main fields:
+
+- **`id`** (string, required): Unique identifier for the benchmark.
+- **`name`** (string, required): Human-readable name of the benchmark.
+- **`type`** (string, required): Task type. Supported values:
+  - `statement`
+  - `function`
+  - `class`
+  - `algorithm`
+  - `context`
+- **`difficulty`** (string, required): Difficulty level. Supported values:
+  - `basic`
+  - `intermediate`
+  - `advanced`
+- **`prompt`** (string, required): The user prompt for the task.
+- **`system_prompt`** (string, optional): The system message to set the context/role for the model.
+- **`evaluation_method`** (string, required): Method to evaluate the model's response.
+- **`test_cases`** (list, required): List of test cases for evaluation.
+- **`temperature`** (float, optional): Sampling temperature for the model.
+- **`tags`** (list of strings, optional): Tags for categorizing the benchmark.
+
+### Evaluation Methods and Test Case Structure
+
+Each `evaluation_method` requires a specific structure for the `test_cases` field:
+
+1.  **`string_contains`**:
+    *   Checks if the `expected` string is present in the model's response. Useful for simple QA or keyword checks.
+    *   Example:
+        ```json
+        [{"expected": "Expected Phrase"}]
+        ```
+2.  **`exec_check_state`**:
+    *   Executes the generated code snippet and checks if specified variables in the final state match the `expected` dictionary.
+    *   Example:
+        ```json
+        [{"input": {"x": 5}, "expected": {"x": 10, "y": 5}}]
+        ```
+3.  **`exec_call_func`**:
+    *   Executes code defining a function, calls the function with `input` arguments, and checks if the return value matches `expected`.
+    *   Example:
+        ```json
+        [{"input": {"n": 5}, "expected": 25}]
+        ```
+4.  **`eval_expression`**:
+    *   Executes the generated code and checks if a resulting variable (determined during evaluation) matches the `expected` value. Useful for list comprehensions or simple assignments.
+    *   Example:
+        ```json
+        [{"expected": [0, 4, 16, 36, 64]}]
+        ```
+5.  **`class_eval`**:
+    *   Executes code defining a class, instantiates it, runs a `sequence` of method calls, and checks if the result of the final call matches `expected`.
+    *   Example:
+        ```json
+        [{"sequence": ["push(1)", "pop()"], "expected": 1}]
+        ```
+
+### Validation
+
+New benchmark files must conform to the schema. Use `load_benchmarks_from_directory` in `core/benchmarking.py` to validate benchmarks. Refer to existing files in the `benchmarks/` directory for examples.
