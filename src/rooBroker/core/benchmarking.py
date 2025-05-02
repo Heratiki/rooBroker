@@ -227,42 +227,42 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
         elif bench["evaluation_method"] == "eval_expression":
             test_results = []
             for i, test_case in enumerate(bench["test_cases"]):
-                passed = False # Default to False
+                passed = False  # Default to False
                 try:
-                    # Extract just the expression part if it's an assignment
-                    code_lines = code_to_execute.strip().split('\n')
-                    expression = code_lines[-1]  # Take the last line
-                    if '=' in expression:
-                        expression = expression.split('=', 1)[1].strip()
-                    
-                    # Create a safe environment for eval
-                    eval_env = {"__builtins__": {"range": range, "len": len}}
-                    
-                    # Evaluate the expression, redirecting stdout
-                    with contextlib.redirect_stdout(io.StringIO()):
-                        result = eval(expression, eval_env)
+                    # Create a local environment for execution
+                    local_env = {"__builtins__": {"range": range, "len": len}}
+
+                    # Execute the entire code block
+                    exec(code_to_execute, {"__builtins__": __builtins__}, local_env)
+
+                    # Retrieve the result variable from the local environment
+                    result = local_env.get("result")
+
+                    # Compare the result with the expected value
                     passed = result == test_case["expected"]
+
                     logger.debug(f"Eval_expression - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case['expected']}, Got: {result})")
-                    
+
                     if verbose:
-                        print(f"Expression evaluated: {expression}")
+                        print(f"Executed code block:\n{code_to_execute}")
                         print(f"Result: {result}")
                         print(f"Expected: {test_case['expected']}")
-                        print(f"Test passed: {test_results[-1]}")
-                        
+                        print(f"Test passed: {passed}")
+
                 except Exception as e:
-                    # passed remains False
-                    error_msg = f"Eval_expression - Test Case {i+1}: Eval error: {str(e)}"
-                    logger.debug(error_msg) # Log error at debug level
+                    # Log and handle execution errors
+                    error_msg = f"Eval_expression - Test Case {i+1}: Execution error: {str(e)}"
+                    logger.debug(error_msg)  # Log error at debug level
                     if verbose:
                         print(error_msg)
+
                 finally:
-                    test_results.append(passed) # Append final pass/fail status
+                    test_results.append(passed)  # Append final pass/fail status
 
             results["test_results"] = test_results
             results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
             results["pass_all"] = all(test_results)
-            logger.debug(f"Eval_expression - Final Results: {results}") # Log final results
+            logger.debug(f"Eval_expression - Final Results: {results}")  # Log final results
             return results
 
         elif bench["evaluation_method"] == "class_eval":
