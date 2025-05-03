@@ -45,8 +45,216 @@ def calculate_test_pass_rate(test_results: List[bool]) -> float:
         return 0.0
     return sum(1 for result in test_results if result) / len(test_results)
 
+def _evaluate_string_contains(response: str, bench: Dict[str, Any], results: Dict[str, Any], logger) -> Dict[str, Any]:
+    expected = bench.get("expected") or (bench.get("expected_response_variants") or [None])[0]
+    if expected is None:
+        results["error"] = "No expected value found in benchmark definition"
+        return results
+
+    expected_str = str(expected)
+    response_str = str(response)
+    results["pass_all"] = expected_str in response_str
+    results["test_pass_rate"] = 1.0 if results["pass_all"] else 0.0
+    return results
+
+def _evaluate_exec_check_state(response: str, bench: Dict[str, Any], results: Dict[str, Any], logger) -> Dict[str, Any]:
+    test_results = []
+    for i, test_case in enumerate(bench["test_cases"]):
+        # Safely handle optional 'expected' values
+        expected_keys = list(test_case["expected"].keys()) if isinstance(test_case.get("expected"), dict) else []
+
+        local_env = test_case["input"].copy()
+        # Initialize input variables at the start of the function
+        input_init = "\n".join(f"    {k} = {repr(v)}" for k, v in test_case["input"].items())
+        
+        # Build function string with explicit indentation control
+        func_def_str = (
+            "def temp_func():\n" + 
+            input_init + "\n" +
+            "    " + response + "\n" +
+            "    return {" +
+            f"k: v for k, v in locals().items() if k in {expected_keys}" +
+            "}"
+        )
+
+        try:
+            # Redirect stdout during exec
+            with contextlib.redirect_stdout(io.StringIO()):
+                exec(func_def_str, local_env)
+            result = local_env["temp_func"]()
+            passed = result == test_case.get("expected", {})
+            test_results.append(passed)
+            logger.debug(f"Exec_check_state - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case.get('expected', {})}, Got: {result})")
+        except Exception as e:
+            passed = False
+            test_results.append(passed)
+            error_msg = f"Exec_check_state - Test Case {i+1}: Execution error: {e}"
+            logger.debug(error_msg) # Log error at debug level
+
+    results["test_results"] = test_results
+    results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
+    results["pass_all"] = all(test_results)
+    logger.debug(f"Exec_check_state - Final Results: {results}") # Log final results
+    return results
+
+def _evaluate_exec_call_func(response: str, bench: Dict[str, Any], results: Dict[str, Any], logger) -> Dict[str, Any]:
+    test_results = []
+    for i, test_case in enumerate(bench["test_cases"]):
+        local_env = {}
+        passed = False # Default to False
+        try:
+            # Redirect stdout during the initial exec to define the function/class
+            with contextlib.redirect_stdout(io.StringIO()):
+                exec(response, {"__builtins__": __builtins__}, local_env)
+
+            if "sequence" in test_case:
+                class_name = next((name for name, obj in local_env.items() if isinstance(obj, type)), None)
+                if class_name:
+                    # Execute sequence of class method calls
+                    instance = local_env[class_name]()
+                    result = None
+                    # Redirect stdout during eval for method calls
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        for call in test_case["sequence"]:
+                            result = eval(f"instance.{call}", {"instance": instance})
+                    passed = result == test_case.get("expected")
+                    logger.debug(f"Exec_call_func (Class Seq) - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case.get('expected')}, Got: {result})")
+                else:
+                    logger.debug(f"Exec_call_func (Class Seq) - Test Case {i+1}: Fail - No class definition found")
+                    # passed remains False
+            else:
+                # Find the first callable that's not a builtin
+                func_name = next((name for name in local_env if callable(local_env[name])), None)
+                if func_name:
+                    # Get the function's parameter names
+                    params = inspect.signature(local_env[func_name]).parameters
+                    param_names = list(params.keys())
+                    
+                    # Map test case input keys to function parameter names
+                    if param_names:
+                        # If we have a single parameter and input doesn't match, use first value
+                        if len(param_names) == 1 and not any(k in test_case["input"] for k in param_names):
+                            first_value = next(iter(test_case["input"].values()))
+                            result = local_env[func_name](first_value)
+                        else:
+                            # Map input keys to parameter names
+                            kwargs = {
+                                k: v for k, v in test_case["input"].items()
+                                if k in param_names
+                            }
+                            # Redirect stdout during function call
+                            with contextlib.redirect_stdout(io.StringIO()):
+                                result = local_env[func_name](**kwargs)
+                        passed = result == test_case["expected"]
+                        logger.debug(f"Exec_call_func (Func) - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case['expected']}, Got: {result})")
+                    else:
+                        logger.debug(f"Exec_call_func (Func) - Test Case {i+1}: Fail - Function has no parameters")
+                        # passed remains False
+                else:
+                    logger.debug(f"Exec_call_func (Func) - Test Case {i+1}: Fail - No function definition found")
+                    # passed remains False
+        except Exception as e:
+            # passed remains False
+            error_msg = f"Exec_call_func - Test Case {i+1}: Execution error: {e}"
+            logger.debug(error_msg) # Log error at debug level
+        finally:
+            test_results.append(passed) # Append final pass/fail status
+
+    results["test_results"] = test_results
+    results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
+    results["pass_all"] = all(test_results)
+    logger.debug(f"Exec_call_func - Final Results: {results}") # Log final results
+    return results
+
+def _evaluate_eval_expression(response: str, bench: Dict[str, Any], results: Dict[str, Any], logger) -> Dict[str, Any]:
+    test_results = []
+    for i, test_case in enumerate(bench["test_cases"]):
+        passed = False  # Default to False
+        try:
+            # Create a local environment for execution
+            local_env = {"__builtins__": {"range": range, "len": len}}
+
+            # Execute the entire code block
+            exec(response, {"__builtins__": __builtins__}, local_env)
+
+            # Retrieve the result variable from the local environment
+            result = local_env.get("result")
+
+            # Compare the result with the expected value
+            passed = result == test_case["expected"]
+
+            logger.debug(f"Eval_expression - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case['expected']}, Got: {result})")
+
+        except Exception as e:
+            # Log and handle execution errors
+            error_msg = f"Eval_expression - Test Case {i+1}: Execution error: {str(e)}"
+            logger.debug(error_msg)  # Log error at debug level
+
+        finally:
+            test_results.append(passed)  # Append final pass/fail status
+
+    results["test_results"] = test_results
+    results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
+    results["pass_all"] = all(test_results)
+    logger.debug(f"Eval_expression - Final Results: {results}")  # Log final results
+    return results
+
+def _evaluate_class_eval(response: str, bench: Dict[str, Any], results: Dict[str, Any], logger) -> Dict[str, Any]:
+    logger.debug("Entering class_eval logic block.")
+    test_results = []
+    try:
+        # Execute the provided code to define the class in a local environment
+        local_env = {}
+        exec(response, local_env)
+        logger.debug(f"Executed code. local_env keys: {list(local_env.keys())}")
+
+        # Find the class definition in the local environment
+        class_name = next((name for name, obj in local_env.items() if isinstance(obj, type)), None)
+        if not class_name:
+            logger.debug("No class definition found in the provided code.")
+            raise ValueError("No class definition found in the provided code.")
+
+        logger.debug(f"Found class definition: {class_name}")
+        class_def = local_env[class_name]
+
+        logger.debug(f"Starting test case loop for {len(bench['test_cases'])} cases.")
+        for i, test_case in enumerate(bench["test_cases"]):
+            logger.debug(f"Test Case {i+1}: Instantiating class {class_name}")
+            instance = class_def()  # Instantiate the class
+            result = None
+
+            try:
+                for call in test_case["sequence"]:
+                    logger.debug(f"Test Case {i+1}: Executing step: {call}")
+                    try:
+                        # Attempt to execute the method call
+                        result = eval(f"instance.{call}", {"instance": instance})
+                    except AttributeError as e:
+                        # Handle potential method name mismatches (e.g., camelCase to snake_case)
+                        snake_case_call = re.sub(r'(?<!^)(?=[A-Z])', '_', call).lower()
+                        result = eval(f"instance.{snake_case_call}", {"instance": instance})
+
+                logger.debug(f"Test Case {i+1}: Sequence result: {result}")
+                # Compare the result of the last operation with the expected value
+                passed = result == test_case["expected"]
+                logger.debug(f"Test Case {i+1}: Comparison result: {passed}")
+                test_results.append(passed)
+            except Exception as e:
+                logger.debug(f"Test Case {i+1}: Error during execution: {e}")
+                test_results.append(False)
+
+        # Calculate pass rate and overall pass status
+        results["test_results"] = test_results
+        results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
+        results["pass_all"] = all(test_results)
+
+    except Exception as e:
+        logger.exception(f"class_eval - General Error: {e}")
+        results["error"] = str(e)
+
+    return results
+
 def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = False) -> Dict[str, Any]:
-    """Evaluate a model response against test cases with enhanced metrics."""
     results = {
         "pass_all": False,
         "test_results": [],
@@ -70,258 +278,18 @@ def evaluate_response(response: str, bench: Dict[str, Any], verbose: bool = Fals
         code_to_execute = code_match.group(1).strip() if code_match else response.strip()
         logger.debug(f"Code to execute: {repr(code_to_execute)}") # Log processed code
 
-        # if verbose: # This print was outside the verbose check
-        #     print("Processed response:", code_to_execute)
-
         # Evaluation logic based on evaluation_method
-        if bench["evaluation_method"] == "string_contains":
-            logger.debug(f"String Contains - Starting evaluation for {bench.get('name')}")
-            
-            # Get the expected value from test cases first
-            if bench.get("test_cases") and len(bench["test_cases"]) > 0:
-                expected = bench["test_cases"][0].get("expected")
-            else:
-                # Fallback to top-level expected or variants
-                expected = bench.get("expected")
-                if expected is None:
-                    variants = bench.get("expected_response_variants")
-                    if variants and isinstance(variants, list) and len(variants) > 0:
-                        expected = variants[0]
-            
-            # If we still don't have an expected value, record error
-            if expected is None:
-                results["error"] = "No expected value found in benchmark definition"
-                results["pass_all"] = False
-                results["test_pass_rate"] = 0.0
-                # if verbose: # This print was outside the verbose check
-                #     print("Error: No expected value found in benchmark definition")
-                return results
-            
-            logger.debug(f"DEBUG: String Contains - Expected Type: {type(expected)}, Expected Value: {repr(expected)}")
-            logger.debug(f"DEBUG: String Contains - Response Type: {type(response)}, Response Value: {repr(response)}")
-            logger.debug("DEBUG: String Contains - About to perform 'expected in response'")
-            
-            # Ensure both expected and response are strings before comparison
-            expected_str = str(expected)
-            response_str = str(response)
-            
-            results["pass_all"] = expected_str in response_str
-            results["test_pass_rate"] = 1.0 if results["pass_all"] else 0.0
-            logger.debug(f"DEBUG: String Contains - Check completed. Result: {results['pass_all']}")
-            return results
-
-        elif bench["evaluation_method"] == "exec_check_state":
-            test_results = []
-            for i, test_case in enumerate(bench["test_cases"]):
-                # Safely handle optional 'expected' values
-                expected_keys = list(test_case["expected"].keys()) if isinstance(test_case.get("expected"), dict) else []
-
-                local_env = test_case["input"].copy()
-                # Initialize input variables at the start of the function
-                input_init = "\n".join(f"    {k} = {repr(v)}" for k, v in test_case["input"].items())
-                
-                # Build function string with explicit indentation control
-                func_def_str = (
-                    "def temp_func():\n" + 
-                    input_init + "\n" +
-                    "    " + code_to_execute + "\n" +
-                    "    return {" +
-                    f"k: v for k, v in locals().items() if k in {expected_keys}" +
-                    "}"
-                )
-
-                # if verbose: # This print was outside the verbose check
-                #     print("Generated function:", func_def_str)
-
-                try:
-                    # Redirect stdout during exec
-                    with contextlib.redirect_stdout(io.StringIO()):
-                        exec(func_def_str, local_env)
-                    result = local_env["temp_func"]()
-                    passed = result == test_case.get("expected", {})
-                    test_results.append(passed)
-                    logger.debug(f"Exec_check_state - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case.get('expected', {})}, Got: {result})")
-                except Exception as e:
-                    passed = False
-                    test_results.append(passed)
-                    error_msg = f"Exec_check_state - Test Case {i+1}: Execution error: {e}"
-                    logger.debug(error_msg) # Log error at debug level
-                    # if verbose: # This print was outside the verbose check
-                    #     print(error_msg)
-
-            results["test_results"] = test_results
-            results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
-            results["pass_all"] = all(test_results)
-            logger.debug(f"Exec_check_state - Final Results: {results}") # Log final results
-            return results
-
-        elif bench["evaluation_method"] == "exec_call_func":
-            test_results = []
-            for i, test_case in enumerate(bench["test_cases"]):
-                local_env = {}
-                passed = False # Default to False
-                try:
-                    # Redirect stdout during the initial exec to define the function/class
-                    with contextlib.redirect_stdout(io.StringIO()):
-                        exec(code_to_execute, {"__builtins__": __builtins__}, local_env)
-
-                    if "sequence" in test_case:
-                        class_name = next((name for name, obj in local_env.items() if isinstance(obj, type)), None)
-                        if class_name:
-                            # Execute sequence of class method calls
-                            instance = local_env[class_name]()
-                            result = None
-                            # Redirect stdout during eval for method calls
-                            with contextlib.redirect_stdout(io.StringIO()):
-                                for call in test_case["sequence"]:
-                                    result = eval(f"instance.{call}", {"instance": instance})
-                            passed = result == test_case.get("expected")
-                            logger.debug(f"Exec_call_func (Class Seq) - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case.get('expected')}, Got: {result})")
-                        else:
-                            logger.debug(f"Exec_call_func (Class Seq) - Test Case {i+1}: Fail - No class definition found")
-                            # passed remains False
-                    else:
-                        # Find the first callable that's not a builtin
-                        func_name = next((name for name in local_env if callable(local_env[name])), None)
-                        if func_name:
-                            # Get the function's parameter names
-                            params = inspect.signature(local_env[func_name]).parameters
-                            param_names = list(params.keys())
-                            
-                            # Map test case input keys to function parameter names
-                            if param_names:
-                                # If we have a single parameter and input doesn't match, use first value
-                                if len(param_names) == 1 and not any(k in test_case["input"] for k in param_names):
-                                    first_value = next(iter(test_case["input"].values()))
-                                    result = local_env[func_name](first_value)
-                                else:
-                                    # Map input keys to parameter names
-                                    kwargs = {
-                                        k: v for k, v in test_case["input"].items()
-                                        if k in param_names
-                                    }
-                                    # Redirect stdout during function call
-                                    with contextlib.redirect_stdout(io.StringIO()):
-                                        result = local_env[func_name](**kwargs)
-                                passed = result == test_case["expected"]
-                                logger.debug(f"Exec_call_func (Func) - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case['expected']}, Got: {result})")
-                            else:
-                                logger.debug(f"Exec_call_func (Func) - Test Case {i+1}: Fail - Function has no parameters")
-                                # passed remains False
-                        else:
-                            logger.debug(f"Exec_call_func (Func) - Test Case {i+1}: Fail - No function definition found")
-                            # passed remains False
-                except Exception as e:
-                    # passed remains False
-                    error_msg = f"Exec_call_func - Test Case {i+1}: Execution error: {e}"
-                    logger.debug(error_msg) # Log error at debug level
-                    # if verbose: # This print was outside the verbose check
-                    #     print(error_msg)
-                finally:
-                    test_results.append(passed) # Append final pass/fail status
-
-            results["test_results"] = test_results
-            results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
-            results["pass_all"] = all(test_results)
-            logger.debug(f"Exec_call_func - Final Results: {results}") # Log final results
-            return results
-
-        elif bench["evaluation_method"] == "eval_expression":
-            test_results = []
-            for i, test_case in enumerate(bench["test_cases"]):
-                passed = False  # Default to False
-                try:
-                    # Create a local environment for execution
-                    local_env = {"__builtins__": {"range": range, "len": len}}
-
-                    # Execute the entire code block
-                    exec(code_to_execute, {"__builtins__": __builtins__}, local_env)
-
-                    # Retrieve the result variable from the local environment
-                    result = local_env.get("result")
-
-                    # Compare the result with the expected value
-                    passed = result == test_case["expected"]
-
-                    logger.debug(f"Eval_expression - Test Case {i+1}: {'Pass' if passed else 'Fail'} (Expected: {test_case['expected']}, Got: {result})")
-
-                    # if verbose: # These prints were outside the verbose check
-                    #     print(f"Executed code block:\n{code_to_execute}")
-                    #     print(f"Result: {result}")
-                    #     print(f"Expected: {test_case['expected']}")
-                    #     print(f"Test passed: {passed}")
-
-                except Exception as e:
-                    # Log and handle execution errors
-                    error_msg = f"Eval_expression - Test Case {i+1}: Execution error: {str(e)}"
-                    logger.debug(error_msg)  # Log error at debug level
-                    # if verbose: # This print was outside the verbose check
-                    #     print(error_msg)
-
-                finally:
-                    test_results.append(passed)  # Append final pass/fail status
-
-            results["test_results"] = test_results
-            results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
-            results["pass_all"] = all(test_results)
-            logger.debug(f"Eval_expression - Final Results: {results}")  # Log final results
-            return results
-
-        elif bench["evaluation_method"] == "class_eval":
-            logger.debug("Entering class_eval logic block.")
-            test_results = []
-            try:
-                # Execute the provided code to define the class in a local environment
-                local_env = {}
-                exec(code_to_execute, local_env)
-                logger.debug(f"Executed code. local_env keys: {list(local_env.keys())}")
-
-                # Find the class definition in the local environment
-                class_name = next((name for name, obj in local_env.items() if isinstance(obj, type)), None)
-                if not class_name:
-                    logger.debug("No class definition found in the provided code.")
-                    raise ValueError("No class definition found in the provided code.")
-
-                logger.debug(f"Found class definition: {class_name}")
-                class_def = local_env[class_name]
-
-                logger.debug(f"Starting test case loop for {len(bench['test_cases'])} cases.")
-                for i, test_case in enumerate(bench["test_cases"]):
-                    logger.debug(f"Test Case {i+1}: Instantiating class {class_name}")
-                    instance = class_def()  # Instantiate the class
-                    result = None
-
-                    try:
-                        for call in test_case["sequence"]:
-                            logger.debug(f"Test Case {i+1}: Executing step: {call}")
-                            try:
-                                # Attempt to execute the method call
-                                result = eval(f"instance.{call}", {"instance": instance})
-                            except AttributeError as e:
-                                # Handle potential method name mismatches (e.g., camelCase to snake_case)
-                                snake_case_call = re.sub(r'(?<!^)(?=[A-Z])', '_', call).lower()
-                                result = eval(f"instance.{snake_case_call}", {"instance": instance})
-
-                        logger.debug(f"Test Case {i+1}: Sequence result: {result}")
-                        # Compare the result of the last operation with the expected value
-                        passed = result == test_case["expected"]
-                        logger.debug(f"Test Case {i+1}: Comparison result: {passed}")
-                        test_results.append(passed)
-                    except Exception as e:
-                        logger.debug(f"Test Case {i+1}: Error during execution: {e}")
-                        test_results.append(False)
-
-                # Calculate pass rate and overall pass status
-                results["test_results"] = test_results
-                results["test_pass_rate"] = sum(test_results) / len(test_results) if test_results else 0.0
-                results["pass_all"] = all(test_results)
-
-            except Exception as e:
-                logger.exception(f"class_eval - General Error: {e}")
-                results["error"] = str(e)
-
-            return results
-
+        evaluation_method = bench.get("evaluation_method")
+        if evaluation_method == "string_contains":
+            return _evaluate_string_contains(response, bench, results, logger)
+        elif evaluation_method == "exec_check_state":
+            return _evaluate_exec_check_state(code_to_execute, bench, results, logger)
+        elif evaluation_method == "exec_call_func":
+            return _evaluate_exec_call_func(code_to_execute, bench, results, logger)
+        elif evaluation_method == "eval_expression":
+            return _evaluate_eval_expression(code_to_execute, bench, results, logger)
+        elif evaluation_method == "class_eval":
+            return _evaluate_class_eval(code_to_execute, bench, results, logger)
         else:
             logger.error(f"Unrecognized evaluation method: {bench['evaluation_method']}") # Log as error
             results["error"] = f"Unrecognized evaluation method: {bench['evaluation_method']}"

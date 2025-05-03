@@ -9,7 +9,7 @@ from pathlib import Path
 from rich.progress import Progress, TextColumn, BarColumn, MofNCompleteColumn, TimeRemainingColumn
 from rich.console import Console  # Import Console
 
-from rooBroker.core.benchmarking import run_standard_benchmarks, load_benchmarks_from_directory
+from rooBroker.core.benchmarking import load_benchmarks_from_directory
 from rooBroker.core.discovery import discover_models_with_status
 from rooBroker.core.state import load_models_as_list, save_model_state
 from rooBroker.interfaces.lmstudio.client import LMStudioClient
@@ -19,6 +19,7 @@ from rooBroker.interfaces.base import ModelProviderClient
 from rooBroker.roo_types.discovery import DiscoveredModel
 from rooBroker.core.mode_management import update_room_modes
 from rooBroker.core.log_config import logger
+from rooBroker.actions import action_discover_models, action_run_benchmarks  # Import the new action function
 
 # Instantiate Console
 console = Console()
@@ -27,7 +28,11 @@ console = Console()
 def handle_discover(args: argparse.Namespace) -> None:
     logger.info("Discovering models...")
     try:
-        models, status = discover_models_with_status()
+        # Use the new action function to discover models
+        models, status = action_discover_models()
+
+        # Log the discovery status
+        logger.info(status.get("message", ""))
 
         if models:
             # Convert DiscoveredModel objects to dictionaries
@@ -48,109 +53,62 @@ def handle_discover(args: argparse.Namespace) -> None:
 
 
 def handle_benchmark(args: argparse.Namespace) -> None:
+    """Handle the benchmark command."""
     try:
-        # Load benchmarks from the specified directory
-        benchmarks = load_benchmarks_from_directory(args.benchmark_dir)
-
-        # Filter benchmarks based on provided arguments
-        if args.task_ids:
-            benchmarks = [b for b in benchmarks if b['id'] in args.task_ids]
-        if args.tags:
-            benchmarks = [b for b in benchmarks if any(tag in b['tags'] for tag in args.tags)]
-        if args.difficulty:
-            benchmarks = [b for b in benchmarks if b['difficulty'] == args.difficulty]
-        if args.type:
-            benchmarks = [b for b in benchmarks if b['type'] == args.type]
-
-        if not benchmarks:
-            print("No benchmarks match the provided filters.")
-            return
-
-        # Instantiate Client
-        client: Optional[ModelProviderClient] = None
-        if args.provider == "lmstudio":
-            client = LMStudioClient()
-        elif args.provider == "ollama":
-            client = OllamaClient()
+        # Determine model source
+        if args.model_id:
+            model_source = "manual"
+        elif args.load_state:
+            model_source = "state"
         else:
-            print("Error: --provider ('lmstudio' or 'ollama') is required for benchmarking.")
+            model_source = "state"  # Default to state if neither is specified
+
+        # Set model IDs if manual source
+        model_ids = args.model_id if model_source == "manual" else []
+
+        # Create benchmark filters
+        benchmark_filters = {
+            "tags": args.tags,
+            "difficulty": args.difficulty,
+            "type": args.type,
+            "task_ids": args.task_ids,
+        }
+
+        # Set provider preference
+        provider_preference = args.provider
+
+        # Create run options
+        run_options = {
+            "samples": args.samples,
+            "verbose": args.verbose,
+        }
+
+        # Set benchmark directory
+        benchmark_dir = args.benchmark_dir
+
+        # Call action_run_benchmarks
+        benchmark_results = action_run_benchmarks(
+            model_source=model_source,
+            model_ids=model_ids,
+            discovered_models_list=[],  # Not applicable in CLI context
+            benchmark_filters=benchmark_filters,
+            provider_preference=provider_preference,
+            run_options=run_options,
+            benchmark_dir=benchmark_dir,
+            state_file=".modelstate.json",
+        )
+
+        # Process and print benchmark results
+        if not benchmark_results:
+            print("No benchmark results were produced.")
             return
 
-        # Initialize models_to_benchmark
-        models_to_benchmark: List[DiscoveredModel] = []
-
-        # Determine Models
-        if args.load_state:
-            print("Loading models from state...")
-            loaded_models: List[Dict[str, Any]] = load_models_as_list()
-
-            if not loaded_models:
-                print("Error: No models found in state file.")
-                return
-
-            # Transform Loaded Data
-            temporary_list = []
-            for loaded_model in loaded_models:
-                model_data = {}
-                model_id = loaded_model.get("model_id") or loaded_model.get("id")
-                if model_id is None:
-                    continue
-                model_id = str(model_id).strip("[]'\"")  # Clean the string representation
-                model_data["id"] = model_id
-                model_data["name"] = loaded_model.get("name", "Unknown")
-                temporary_list.append(model_data)
-
-            models_to_benchmark = temporary_list
-        else:
-            # If model_id is provided, create a single model entry
-            if args.model_id:
-                model_id = str(args.model_id).strip("[]'\"")  # Clean the string representation
-                models_to_benchmark = [{"id": model_id, "name": model_id}]
-
-        if not models_to_benchmark:
-            print("No models selected for benchmarking.")
-            return
-
-        # Progress setup
-        with Progress(
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TimeRemainingColumn()
-        ) as progress:
-            benchmark_results = run_standard_benchmarks(
-                client=client,
-                models_to_benchmark=models_to_benchmark,
-                benchmarks_to_run=benchmarks,
-                progress=progress,
-                num_samples=args.samples if args.samples else 20,
-                verbose=args.verbose
-            )
-
-            # Process benchmark results to calculate average test pass rates
-            for result in benchmark_results:
-                type_scores = {"statement": [], "function": [], "class": [], "algorithm": [], "context": []}
-                for task in result.get("task_results", []):
-                    # Retrieve the task type and avg test pass rate for this task
-                    task_type = task.get("type")
-                    test_pass_rate = task.get("avg_test_pass_rate", 0.0)
-                    if task_type in type_scores:
-                        type_scores[task_type].append(test_pass_rate)
-                avg_scores = {}
-                for t, scores in type_scores.items():
-                    avg_scores[f"avg_score_{t}"] = sum(scores) / len(scores) if scores else 0.0
-                result.update(avg_scores)
-
-            # Display Results
-            if benchmark_results:
-                pretty_print_benchmarks(benchmark_results)
-            else:
-                print("Benchmarking completed, but no results were generated.")
-
+        # Calculate averages and print results
+        pretty_print_benchmarks(benchmark_results)
         print("Benchmarking process finished.")
 
     except Exception as e:
-        print(f"An error occurred during benchmarking: {e}")
+        logger.exception(f"An error occurred during benchmarking: {e}")
 
 
 def handle_save_state(args: argparse.Namespace) -> None:
