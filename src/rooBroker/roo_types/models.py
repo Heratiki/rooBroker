@@ -4,11 +4,10 @@ from typing import Dict, Optional, TypedDict, Literal, NotRequired, Any
 
 from .settings import OpenRouterModelInfo, VSCodeModelSelector
 
-PromptImprovement = TypedDict('PromptImprovement', {
-    'analysis': str,
-    'score': float,
-    'timestamp': str
-})
+PromptImprovement = TypedDict(
+    "PromptImprovement", {"analysis": str, "score": float, "timestamp": str}
+)
+
 
 class ModelState(TypedDict, total=False):
     model_id: str
@@ -21,7 +20,9 @@ class ModelState(TypedDict, total=False):
     prompt_improvements: Dict[str, PromptImprovement]
     last_updated: str
 
-ApiProvider = Literal['lmstudio', 'openrouter', 'azure']
+
+ApiProvider = Literal["lmstudio", "openrouter", "azure"]
+
 
 class ApiConfig(TypedDict):
     apiProvider: ApiProvider
@@ -35,11 +36,14 @@ class ApiConfig(TypedDict):
     rateLimitSeconds: int
     id: str
 
-Priority = Literal['high', 'medium', 'low']
+
+Priority = Literal["high", "medium", "low"]
+
 
 class FileRestrictions(TypedDict):
     fileRegex: str
     description: str
+
 
 class ModelConfiguration(TypedDict):
     config_id: str
@@ -48,8 +52,10 @@ class ModelConfiguration(TypedDict):
     api_config: ApiConfig
     file_restrictions: FileRestrictions
 
+
 class OllamaModelDetails(TypedDict, total=False):
     """Detailed model information for Ollama models."""
+
     id: str
     name: str
     context_window: int

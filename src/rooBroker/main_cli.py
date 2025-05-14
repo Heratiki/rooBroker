@@ -6,7 +6,13 @@ import argparse
 import sys
 from typing import List, NoReturn, Optional, cast, Dict, Any
 from pathlib import Path
-from rich.progress import Progress, TextColumn, BarColumn, MofNCompleteColumn, TimeRemainingColumn
+from rich.progress import (
+    Progress,
+    TextColumn,
+    BarColumn,
+    MofNCompleteColumn,
+    TimeRemainingColumn,
+)
 from rich.console import Console  # Import Console
 
 from rooBroker.core.benchmarking import load_benchmarks_from_directory
@@ -19,7 +25,10 @@ from rooBroker.interfaces.base import ModelProviderClient
 from rooBroker.roo_types.discovery import DiscoveredModel
 from rooBroker.core.mode_management import update_room_modes
 from rooBroker.core.log_config import logger
-from rooBroker.actions import action_discover_models, action_run_benchmarks  # Import the new action function
+from rooBroker.actions import (
+    action_discover_models,
+    action_run_benchmarks,
+)  # Import the new action function
 
 # Instantiate Console
 console = Console()
@@ -44,9 +53,13 @@ def handle_discover(args: argparse.Namespace) -> None:
 
         for provider, info in status["providers"].items():
             if info["status"] is True:
-                logger.info(f"{provider} Status: OK (Found {info.get('count', 0)} models)")
+                logger.info(
+                    f"{provider} Status: OK (Found {info.get('count', 0)} models)"
+                )
             else:
-                logger.error(f"{provider} Status: FAILED - Error: {info.get('error', 'Unknown error')}")
+                logger.error(
+                    f"{provider} Status: FAILED - Error: {info.get('error', 'Unknown error')}"
+                )
 
     except Exception as e:
         logger.exception(f"An error occurred during model discovery: {e}")
@@ -117,7 +130,9 @@ def handle_save_state(args: argparse.Namespace) -> None:
         output_file_path = args.output_file
 
         print(f"Loading model state from {input_file_path}...")
-        loaded_data: List[Dict[str, Any]] = load_models_as_list(file_path=input_file_path)
+        loaded_data: List[Dict[str, Any]] = load_models_as_list(
+            file_path=input_file_path
+        )
 
         if not loaded_data:
             print(f"Warning: No data found in {input_file_path}. Nothing to save.")
@@ -141,7 +156,7 @@ def handle_update_modes(args: argparse.Namespace) -> None:
         success = update_room_modes(
             modelstate_path=modelstate_path,
             roomodes_path=roomodes_path,
-            settings_path=settings_path
+            settings_path=settings_path,
         )
 
         if success:
@@ -192,73 +207,63 @@ def cli_main(argv: List[str] | None = None) -> int:
         help="Number of samples per benchmark task (default defined in core).",
     )
     benchmark_parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
-        help="Enable verbose output during benchmarking to see individual task details and responses."
+        help="Enable verbose output during benchmarking to see individual task details and responses.",
     )
     benchmark_parser.add_argument(
         "--benchmark-dir",
         type=str,
         default="benchmarks",
-        help="Directory to load benchmarks from (default: 'benchmarks')."
+        help="Directory to load benchmarks from (default: 'benchmarks').",
     )
     benchmark_parser.add_argument(
-        "--task-ids",
-        nargs="+",
-        help="Filter benchmarks by task IDs."
+        "--task-ids", nargs="+", help="Filter benchmarks by task IDs."
     )
     benchmark_parser.add_argument(
-        "--tags",
-        nargs="+",
-        help="Filter benchmarks by tags."
+        "--tags", nargs="+", help="Filter benchmarks by tags."
     )
     benchmark_parser.add_argument(
-        "--difficulty",
-        type=str,
-        help="Filter benchmarks by difficulty level."
+        "--difficulty", type=str, help="Filter benchmarks by difficulty level."
     )
-    benchmark_parser.add_argument(
-        "--type",
-        type=str,
-        help="Filter benchmarks by type."
-    )
+    benchmark_parser.add_argument("--type", type=str, help="Filter benchmarks by type.")
     benchmark_parser.set_defaults(func=handle_benchmark)
 
     # Save-state subparser
     parser_save_state = subparsers.add_parser(
-        'save-state',
-        help='Load and save the model state file (.modelstate.json).'
+        "save-state", help="Load and save the model state file (.modelstate.json)."
     )
     parser_save_state.add_argument(
-        '-o', '--output-file',
+        "-o",
+        "--output-file",
         type=str,
-        default='.modelstate.json',
-        help='Path to save the model state JSON file (default: .modelstate.json)'
+        default=".modelstate.json",
+        help="Path to save the model state JSON file (default: .modelstate.json)",
     )
     parser_save_state.set_defaults(func=handle_save_state)
 
     # Update-modes subparser
     parser_update_modes = subparsers.add_parser(
-        'update-modes',
-        help='Update .roomodes file based on .modelstate.json.'
+        "update-modes", help="Update .roomodes file based on .modelstate.json."
     )
     parser_update_modes.add_argument(
-        '--modelstate-file',
+        "--modelstate-file",
         type=str,
-        default='.modelstate.json',
-        help='Path to the input model state JSON file (default: .modelstate.json)'
+        default=".modelstate.json",
+        help="Path to the input model state JSON file (default: .modelstate.json)",
     )
     parser_update_modes.add_argument(
-        '--roomodes-file',
+        "--roomodes-file",
         type=str,
-        default='.roomodes',
-        help='Path to the output .roomodes file (default: .roomodes)'
+        default=".roomodes",
+        help="Path to the output .roomodes file (default: .roomodes)",
     )
     parser_update_modes.add_argument(
-        '--settings-file',
+        "--settings-file",
         type=str,
-        default='roo-code-settings.json',
-        help='Path to the roo-code-settings.json file to update (default: roo-code-settings.json)'
+        default="roo-code-settings.json",
+        help="Path to the roo-code-settings.json file to update (default: roo-code-settings.json)",
     )
     parser_update_modes.set_defaults(func=handle_update_modes)
 
@@ -266,22 +271,22 @@ def cli_main(argv: List[str] | None = None) -> int:
 
     try:
         if hasattr(args, "func"):
-            args.func(args) # Execute the command function
+            args.func(args)  # Execute the command function
             return 0
         else:
             # Handle cases where no command was provided or func is not set
             parser.print_help()
-            return 1 # Return an error code if no command was run
+            return 1  # Return an error code if no command was run
     except KeyboardInterrupt:
         console.print("\n[yellow]Operation cancelled by user.[/yellow]")
-        return 1 # Return specific code for interruption
+        return 1  # Return specific code for interruption
     except Exception as e:
         # Log the exception for debugging purposes
         logger.exception(f"An unexpected error occurred: {e}")
         # Print a user-friendly error message
         console.print(f"[red]Error: {str(e)}[/red]")
-        return 1 # Return a general error code
+        return 1  # Return a general error code
 
 
 if __name__ == "__main__":
-    sys.exit(cli_main()) # Call cli_main directly
+    sys.exit(cli_main())  # Call cli_main directly

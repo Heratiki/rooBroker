@@ -20,6 +20,8 @@ rich = "^13.0.0"
 requests = "^2.31.0"
 typing-extensions = "^4.5.0"
 types-requests = "^2.28.11.8"
+black = "^25.1.0"
+flake8 = "^7.2.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

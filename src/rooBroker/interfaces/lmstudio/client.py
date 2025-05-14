@@ -9,11 +9,7 @@ from typing import List, Optional, Dict, Any, cast
 import requests
 
 from rooBroker.interfaces.base import ModelProviderClient
-from rooBroker.roo_types.discovery import (
-    DiscoveredModel,
-    ChatMessage,
-    ModelInfo
-)
+from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage, ModelInfo
 from rooBroker.core.log_config import logger
 
 
@@ -46,7 +42,7 @@ class LMStudioClient(ModelProviderClient):
         except requests.exceptions.ConnectionError as e:
             raise RuntimeError(f"Failed to connect to LM Studio server: {e}") from e
         except requests.exceptions.Timeout as e:
-            raise RuntimeError(f"Connection to LM Studio timed out: {e}") from e  
+            raise RuntimeError(f"Connection to LM Studio timed out: {e}") from e
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Failed to query LM Studio models endpoint: {e}") from e
         except Exception as e:
@@ -60,23 +56,23 @@ class LMStudioClient(ModelProviderClient):
             if not model_id:
                 # Skip models without ID
                 continue
-                
+
             model_info: ModelInfo = {
                 "id": model_id,  # Required key
                 # Optional keys added only if they exist
             }
-            
+
             # Add optional fields only if they exist
             if model.get("family"):
                 model_info["family"] = model.get("family")
-                
+
             context_window = model.get("context_length") or model.get("context_window")
             if context_window:
                 model_info["context_window"] = context_window
-                
+
             if model.get("created"):
                 model_info["created"] = model.get("created")
-                
+
             models.append(model_info)
         return models
 
@@ -118,13 +114,15 @@ class LMStudioClient(ModelProviderClient):
             ValueError: If the model_id is invalid or other parameter validation fails.
         """
         # Convert messages to LM Studio format
-        lm_messages = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
+        lm_messages = [
+            {"role": msg["role"], "content": msg["content"]} for msg in messages
+        ]
 
         # Prepare the payload with context optimization
         payload: Dict[str, Any] = {
             "model": model_id,
             "messages": lm_messages,
-            "temperature": temperature
+            "temperature": temperature,
         }
 
         # Optimize context if model details are available
@@ -141,41 +139,50 @@ class LMStudioClient(ModelProviderClient):
                 # Estimate input tokens (rough approximation)
                 estimated = sum(len(m["content"]) // 4 for m in messages)
                 if estimated > input_limit * 0.9:
-                    logger.warning(f"Input may exceed token limit. Est: {estimated}, Limit: {input_limit}")
+                    logger.warning(
+                        f"Input may exceed token limit. Est: {estimated}, Limit: {input_limit}"
+                    )
             else:
                 logger.info("Using default max_tokens due to missing context_length.")
         else:
             logger.info("Using default max_tokens due to missing model details.")
-            
+
         # If we didn't have valid context information, use the default max_tokens
         payload["max_tokens"] = max_tokens
 
         # Determine dynamic timeout based on model_id
         timeout_sec = 60  # Default timeout
-        if any(keyword in model_id.lower() for keyword in ["7b", "13b"]) or (model_details and model_details.get("context_window", 0) > 8000):
+        if any(keyword in model_id.lower() for keyword in ["7b", "13b"]) or (
+            model_details and model_details.get("context_window", 0) > 8000
+        ):
             timeout_sec = 120
         elif any(keyword in model_id.lower() for keyword in ["30b", "34b", "70b"]):
             timeout_sec = 180
 
-        logger.debug(f"Using dynamic timeout: {timeout_sec} seconds for model_id: {model_id}")
+        logger.debug(
+            f"Using dynamic timeout: {timeout_sec} seconds for model_id: {model_id}"
+        )
 
         try:
             response = requests.post(
                 self.completions_endpoint,
                 json=payload,
-                headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'},
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0",
+                },
                 verify=False,
-                timeout=timeout_sec
+                timeout=timeout_sec,
             )
             response.raise_for_status()
             result = response.json()
-            
+
             # Extract the generated text from the response
             if not result.get("choices"):
                 raise ValueError("No completion choices in response")
-            
+
             return result["choices"][0]["message"]["content"]
-            
+
         except requests.RequestException as e:
             raise ConnectionError(f"Failed to connect to LM Studio: {e}")
         except Exception as e:

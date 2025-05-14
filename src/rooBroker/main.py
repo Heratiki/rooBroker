@@ -16,11 +16,11 @@ from rooBroker.main_interactive import main as interactive_main
 def main() -> NoReturn:
     """
     Main entry point for rooBroker.
-    
+
     Routes to:
     - CLI mode if arguments are provided
     - Interactive mode if no arguments are provided
-    
+
     Exits the program with appropriate status code.
     """
     if len(sys.argv) > 1:

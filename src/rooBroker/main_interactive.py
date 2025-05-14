@@ -27,7 +27,13 @@ else:
 from rich.console import Console
 from rich.live import Live
 from rich.prompt import Prompt
-from rich.progress import Progress, TextColumn, BarColumn, MofNCompleteColumn, TimeRemainingColumn
+from rich.progress import (
+    Progress,
+    TextColumn,
+    BarColumn,
+    MofNCompleteColumn,
+    TimeRemainingColumn,
+)
 
 from rooBroker.ui.interactive_layout import InteractiveLayout
 from rooBroker.roo_types.discovery import DiscoveredModel
@@ -44,10 +50,10 @@ proxy_server = None
 proxy_stop_function = None
 current_menu: str = "main"
 app_state = {
-    'benchmark_config': {
-        'model_source': 'discovered',
-        'provider': None,
-        'provider_options': []
+    "benchmark_config": {
+        "model_source": "discovered",
+        "provider": None,
+        "provider_options": [],
     }
 }
 
@@ -55,6 +61,7 @@ difficulties = ["basic", "intermediate", "advanced", None]
 types = ["statement", "function", "class", "algorithm", "context", None]
 
 model_list_scroll = 0  # Track scroll position for model list
+
 
 # Helper functions
 def read_single_key() -> str:
@@ -75,28 +82,84 @@ def read_single_key() -> str:
             pass
     return "\n"
 
+
 MENU_OPTIONS = {
-    'main': [
-        ('1', 'Discover Models', lambda: interactive_actions.discover_models_only(layout, discovered_models)),
-        ('2', 'Run Benchmarks', lambda: None),  # Placeholder, menu transition handled in key processing
-        ('3', 'Save Model State', lambda: interactive_actions.manual_save_state(layout, benchmark_results)),
-        ('4', 'Update Roomodes', lambda: interactive_actions.update_roomodes_action(layout)),
-        ('5', 'View Results', lambda: interactive_actions.view_benchmark_results(layout)),
-        ('6', 'Launch Proxy', lambda: interactive_actions.launch_context_proxy(layout)),
-        ('7', 'Run All Steps', lambda: interactive_actions.run_all_steps(layout, app_state, discovered_models, benchmark_results)),
-        ('q', 'Quit', None)
+    "main": [
+        (
+            "1",
+            "Discover Models",
+            lambda: interactive_actions.discover_models_only(layout, discovered_models),
+        ),
+        (
+            "2",
+            "Run Benchmarks",
+            lambda: None,
+        ),  # Placeholder, menu transition handled in key processing
+        (
+            "3",
+            "Save Model State",
+            lambda: interactive_actions.manual_save_state(layout, benchmark_results),
+        ),
+        (
+            "4",
+            "Update Roomodes",
+            lambda: interactive_actions.update_roomodes_action(layout),
+        ),
+        (
+            "5",
+            "View Results",
+            lambda: interactive_actions.view_benchmark_results(layout),
+        ),
+        ("6", "Launch Proxy", lambda: interactive_actions.launch_context_proxy(layout)),
+        (
+            "7",
+            "Run All Steps",
+            lambda: interactive_actions.run_all_steps(
+                layout, app_state, discovered_models, benchmark_results
+            ),
+        ),
+        ("q", "Quit", None),
     ],
-    'benchmark': [
-        ('1', 'All Benchmarks', lambda: interactive_actions.handle_benchmark_option('all', layout, app_state, benchmark_results, discovered_models)),
-        ('2', 'Basic Benchmarks', lambda: interactive_actions.handle_benchmark_option('basic', layout, app_state, benchmark_results, discovered_models)),
-        ('3', 'Advanced Benchmarks', lambda: interactive_actions.handle_benchmark_option('advanced', layout, app_state, benchmark_results, discovered_models)),
-        ('4', 'Custom Benchmarks', lambda: interactive_actions.handle_benchmark_option('custom', layout, app_state, benchmark_results, discovered_models)),
-        ('b', 'Back to Main Menu', lambda: None),  # Placeholder, menu transition handled in key processing
-        ('q', 'Quit', None)
-    ]
+    "benchmark": [
+        (
+            "1",
+            "All Benchmarks",
+            lambda: interactive_actions.handle_benchmark_option(
+                "all", layout, app_state, benchmark_results, discovered_models
+            ),
+        ),
+        (
+            "2",
+            "Basic Benchmarks",
+            lambda: interactive_actions.handle_benchmark_option(
+                "basic", layout, app_state, benchmark_results, discovered_models
+            ),
+        ),
+        (
+            "3",
+            "Advanced Benchmarks",
+            lambda: interactive_actions.handle_benchmark_option(
+                "advanced", layout, app_state, benchmark_results, discovered_models
+            ),
+        ),
+        (
+            "4",
+            "Custom Benchmarks",
+            lambda: interactive_actions.handle_benchmark_option(
+                "custom", layout, app_state, benchmark_results, discovered_models
+            ),
+        ),
+        (
+            "b",
+            "Back to Main Menu",
+            lambda: None,
+        ),  # Placeholder, menu transition handled in key processing
+        ("q", "Quit", None),
+    ],
 }
 
-def _draw_menu(menu_type: str = 'main', selected: int = 0):
+
+def _draw_menu(menu_type: str = "main", selected: int = 0):
     """Draw the menu with the currently selected item highlighted."""
     menu_items = MENU_OPTIONS[menu_type]
     for idx, (key, label, _) in enumerate(menu_items):
@@ -105,21 +168,22 @@ def _draw_menu(menu_type: str = 'main', selected: int = 0):
         else:
             console.print(f" {key}. {label}")
 
+
 async def interactive_main_async():
     """Main async function for interactive mode."""
     global current_menu
     selected = 0
-    current_menu = 'main'
+    current_menu = "main"
 
     console.clear()
     with Live(layout, refresh_per_second=4, screen=True, auto_refresh=False) as live:
         live.start()
-        
+
         while True:
             try:
                 # Update layout and menu
                 live.update(layout, refresh=True)
-                
+
                 # Draw menu
                 with console.capture() as capture:
                     console.print("\n")
@@ -132,48 +196,50 @@ async def interactive_main_async():
                 menu_items = MENU_OPTIONS[current_menu]
 
                 # Handle navigation
-                if key == '\x1b':  # Escape sequence
+                if key == "\x1b":  # Escape sequence
                     next_char = read_single_key()
-                    if next_char == '[':
+                    if next_char == "[":
                         arrow = read_single_key()
-                        if arrow == 'A':  # Up arrow
+                        if arrow == "A":  # Up arrow
                             selected = (selected - 1) % len(menu_items)
                             continue
-                        elif arrow == 'B':  # Down arrow
+                        elif arrow == "B":  # Down arrow
                             selected = (selected + 1) % len(menu_items)
                             continue
 
-                if key == 'w':  # Scroll model list up
+                if key == "w":  # Scroll model list up
                     layout.models.scroll_up()
                     continue
-                
-                if key == 's':  # Scroll model list down
+
+                if key == "s":  # Scroll model list down
                     layout.models.scroll_down()
                     continue
 
-                if key == 'q':  # Quit
+                if key == "q":  # Quit
                     break
 
-                if key == 'b' and current_menu != 'main':  # Back to main menu
-                    current_menu = 'main'
+                if key == "b" and current_menu != "main":  # Back to main menu
+                    current_menu = "main"
                     selected = 0
                     continue
 
                 # Handle menu transitions
-                if current_menu == 'main' and key == '2':
-                    current_menu = 'benchmark'
+                if current_menu == "main" and key == "2":
+                    current_menu = "benchmark"
                     selected = 0
                     continue
 
                 # Handle action selection
                 action = None
                 # Handle Enter/Space for selected item
-                if key in ['\r', '\n', ' ']:
+                if key in ["\r", "\n", " "]:
                     action = menu_items[selected][2]
                 # Handle number keys and shortcuts
                 else:
                     for shortcut, _, act in menu_items:
-                        if str(key) == str(shortcut):  # Convert both to string for comparison
+                        if str(key) == str(
+                            shortcut
+                        ):  # Convert both to string for comparison
                             action = act
                             break
 
@@ -198,12 +264,14 @@ async def interactive_main_async():
                 live.refresh()
                 await asyncio.sleep(1)  # Give user time to see error
 
+
 def _cleanup_resources():
     global proxy_stop_function
     if proxy_stop_function:
         layout.prompt.add_message("[yellow]Stopping context proxy...[/yellow]")
         proxy_stop_function()
         layout.prompt.add_message("[green]Context proxy stopped.[/green]")
+
 
 # Main execution
 def main():
@@ -216,6 +284,7 @@ def main():
     finally:
         _cleanup_resources()
         console.print("\n[bold blue]Exiting rooBroker Interactive Mode.[/]")
+
 
 # Ensure this file can be run as a script
 if __name__ == "__main__":

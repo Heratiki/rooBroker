@@ -4,36 +4,38 @@ from rich.console import Console, Group
 from rich.text import Text
 from rich.panel import Panel
 
+
 class MenuItem:
     def __init__(self, key: str, label: str, action: Optional[Callable] = None):
         self.key = key
         self.label = label
         self.action = action  # Could be async or sync
 
+
 class MenuManager:
     def __init__(self, console: Console):
         self.console = console
         self.menus = {
-            'main': [
-                MenuItem('1', 'Discover Models', self._placeholder_action),
-                MenuItem('2', 'Run Benchmarks', self._placeholder_action),
-                MenuItem('3', 'Save Model State', self._placeholder_action),
-                MenuItem('4', 'Update Roomodes', self._placeholder_action),
-                MenuItem('5', 'View Results', self._placeholder_action),
-                MenuItem('6', 'Launch Proxy', self._placeholder_action),
-                MenuItem('7', 'Run All Steps', self._placeholder_action),
-                MenuItem('q', 'Quit', None),
+            "main": [
+                MenuItem("1", "Discover Models", self._placeholder_action),
+                MenuItem("2", "Run Benchmarks", self._placeholder_action),
+                MenuItem("3", "Save Model State", self._placeholder_action),
+                MenuItem("4", "Update Roomodes", self._placeholder_action),
+                MenuItem("5", "View Results", self._placeholder_action),
+                MenuItem("6", "Launch Proxy", self._placeholder_action),
+                MenuItem("7", "Run All Steps", self._placeholder_action),
+                MenuItem("q", "Quit", None),
             ],
-            'benchmark': [
-                MenuItem('1', 'All Benchmarks', self._placeholder_action),
-                MenuItem('2', 'Basic Benchmarks', self._placeholder_action),
-                MenuItem('3', 'Advanced Benchmarks', self._placeholder_action),
-                MenuItem('4', 'Custom Benchmarks', self._placeholder_action),
-                MenuItem('b', 'Back to Main Menu', self._placeholder_action),
-                MenuItem('q', 'Quit', None),
-            ]
+            "benchmark": [
+                MenuItem("1", "All Benchmarks", self._placeholder_action),
+                MenuItem("2", "Basic Benchmarks", self._placeholder_action),
+                MenuItem("3", "Advanced Benchmarks", self._placeholder_action),
+                MenuItem("4", "Custom Benchmarks", self._placeholder_action),
+                MenuItem("b", "Back to Main Menu", self._placeholder_action),
+                MenuItem("q", "Quit", None),
+            ],
         }
-        self.current_menu_key = 'main'
+        self.current_menu_key = "main"
         self.selected_index = 0
 
     async def _placeholder_action(self):

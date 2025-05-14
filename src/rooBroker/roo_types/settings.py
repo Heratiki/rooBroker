@@ -2,6 +2,7 @@
 
 from typing import Dict, Any, TypedDict
 
+
 class OpenRouterModelInfo(TypedDict):
     maxTokens: int
     contextWindow: int
@@ -15,13 +16,16 @@ class OpenRouterModelInfo(TypedDict):
     description: str
     thinking: bool
 
+
 class VSCodeModelSelector(TypedDict):
     vendor: str
     family: str
 
+
 class ApiProviderConfig(TypedDict):
     apiConfigs: Dict[str, Any]
     modeApiConfigs: Dict[str, str]
+
 
 class Settings(TypedDict):
     providerProfiles: ApiProviderConfig

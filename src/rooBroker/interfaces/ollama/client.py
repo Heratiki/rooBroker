@@ -10,11 +10,7 @@ import requests
 import json  # Add this import at the top if not already present
 
 from rooBroker.interfaces.base import ModelProviderClient
-from rooBroker.roo_types.discovery import (
-    DiscoveredModel,
-    ChatMessage,
-    OllamaModelInfo
-)
+from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage, OllamaModelInfo
 from rooBroker.core.log_config import logger
 
 
@@ -69,16 +65,18 @@ class OllamaClient(ModelProviderClient):
                 "id": model_name,  # Required
                 "name": model_name,  # Required
             }
-            
+
             # Add optional fields if available
-            model_info["context_window"] = 8192  # Default value, actual value not provided in /api/tags
-            
+            model_info["context_window"] = (
+                8192  # Default value, actual value not provided in /api/tags
+            )
+
             if model.get("tag"):
                 model_info["version"] = model.get("tag", "latest")
-                
+
             if model.get("modified_at"):
                 model_info["created"] = model.get("modified_at", 0)
-                
+
             models.append(model_info)
         return models
 
@@ -93,9 +91,7 @@ class OllamaClient(ModelProviderClient):
         """
         try:
             response = requests.post(
-                self.show_endpoint,
-                json={"name": model_id},
-                timeout=5
+                self.show_endpoint, json={"name": model_id}, timeout=5
             )
             response.raise_for_status()
             data = response.json()
@@ -105,20 +101,20 @@ class OllamaClient(ModelProviderClient):
                 "id": model_id,  # Required
                 "name": model_id,  # Required
             }
-            
+
             # Add optional fields if available
             context_length = data.get("parameters", {}).get("context_length")
             if context_length:
                 model_info["context_window"] = context_length
             else:
                 model_info["context_window"] = 8192  # Default
-                
+
             if data.get("tag"):
                 model_info["version"] = data.get("tag", "latest")
-                
+
             if data.get("modified_at"):
                 model_info["created"] = data.get("modified_at", 0)
-                
+
             return model_info
         except Exception as e:
             logger.warning(f"Failed to get model details for {model_id}: {e}")
@@ -147,28 +143,27 @@ class OllamaClient(ModelProviderClient):
             ValueError: If the model_id is invalid or other parameter validation fails.
         """
         # Convert messages to Ollama format
-        ollama_messages = [{"role": msg["role"], "content": msg["content"]} for msg in messages]        # Prepare the payload
+        ollama_messages = [
+            {"role": msg["role"], "content": msg["content"]} for msg in messages
+        ]  # Prepare the payload
         payload: Dict[str, Any] = {
             "model": model_id,
             "messages": ollama_messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "stream": False
+            "stream": False,
         }
 
         try:
             # Define headers including User-Agent
-            headers = {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0'
-            }
+            headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
             response = requests.post(
                 self.chat_endpoint,
                 headers=headers,  # Pass the defined headers
                 json=payload,  # Use json parameter for automatic Content-Type and serialization
                 timeout=60,
-                verify=False  # Disable SSL verification
+                verify=False,  # Disable SSL verification
             )
             response.raise_for_status()
             result = response.json()

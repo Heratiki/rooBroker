@@ -4,28 +4,41 @@ from typing import Dict, List, Tuple, Any, Union, cast
 
 from .utils import slugify
 
+
 def generate_mode_entry(model: Dict[str, Any]) -> Dict[str, Any]:
     """Generate a RooCode mode entry from a model dict that's optimized for coding tasks."""
-    model_id: str = cast(str, model.get('model_id', model.get('id', 'Unknown Model')))
+    model_id: str = cast(str, model.get("model_id", model.get("id", "Unknown Model")))
     model_name: str = model_id
-    context_window: int = cast(int, model.get('context_window', 0))
-    
+    context_window: int = cast(int, model.get("context_window", 0))
+
     # Get benchmark scores and improvements
-    score_simple: float = cast(float, model.get('score_simple', 0.0))
-    score_moderate: float = cast(float, model.get('score_moderate', 0.0))
-    score_complex: float = cast(float, model.get('score_complex', 0.0))
-    score_context_window: float = cast(float, model.get('score_context_window', 0.0))
-    
+    score_simple: float = cast(float, model.get("score_simple", 0.0))
+    score_moderate: float = cast(float, model.get("score_moderate", 0.0))
+    score_complex: float = cast(float, model.get("score_complex", 0.0))
+    score_context_window: float = cast(float, model.get("score_context_window", 0.0))
+
     # Get BIG-BENCH scores if available
-    bigbench_scores: Dict[str, Any] = cast(Dict[str, Any], model.get('bigbench_scores', {}))
-    bigbench_overall: float = cast(float, bigbench_scores.get('overall', 0.0))
-    bigbench_raw: float = cast(float, bigbench_scores.get('raw_overall', bigbench_overall))
-    bigbench_tasks: List[Dict[str, Any]] = cast(List[Dict[str, Any]], bigbench_scores.get('tasks', []))
-    
+    bigbench_scores: Dict[str, Any] = cast(
+        Dict[str, Any], model.get("bigbench_scores", {})
+    )
+    bigbench_overall: float = cast(float, bigbench_scores.get("overall", 0.0))
+    bigbench_raw: float = cast(
+        float, bigbench_scores.get("raw_overall", bigbench_overall)
+    )
+    bigbench_tasks: List[Dict[str, Any]] = cast(
+        List[Dict[str, Any]], bigbench_scores.get("tasks", [])
+    )
+
     # Calculate overall score with heavy BIG-BENCH weighting (60% BIG-BENCH, 40% standard)
-    base_score = (score_simple + score_moderate + score_complex + score_context_window) / 4
-    overall_score = (base_score * 0.4 + bigbench_overall * 0.6) if bigbench_overall > 0 else base_score
-    
+    base_score = (
+        score_simple + score_moderate + score_complex + score_context_window
+    ) / 4
+    overall_score = (
+        (base_score * 0.4 + bigbench_overall * 0.6)
+        if bigbench_overall > 0
+        else base_score
+    )
+
     # Extract complexity-specific capabilities
     complexity_scores: Dict[str, List[Dict[str, Any]]] = {
         "logical_reasoning": [],
@@ -34,63 +47,71 @@ def generate_mode_entry(model: Dict[str, Any]) -> Dict[str, Any]:
         "mathematics": [],
         "code_generation": [],
         "problem_solving": [],
-        "other": []
+        "other": [],
     }
-    
+
     # Group task scores by complexity category
     for task in bigbench_tasks:
-        category = task.get('complexity_category', 'other')
+        category = task.get("complexity_category", "other")
         if category in complexity_scores:
-            complexity_scores[category].append({
-                'name': task.get('task', ''),
-                'score': task.get('weighted_score', task.get('raw_score', 0.0)),
-                'metrics': task.get('metrics', {})
-            })
-    
+            complexity_scores[category].append(
+                {
+                    "name": task.get("task", ""),
+                    "score": task.get("weighted_score", task.get("raw_score", 0.0)),
+                    "metrics": task.get("metrics", {}),
+                }
+            )
+
     # Calculate average scores per category
     category_averages: Dict[str, float] = {
-        cat: sum(t['score'] for t in tasks) / len(tasks) if tasks else 0.0
+        cat: sum(t["score"] for t in tasks) / len(tasks) if tasks else 0.0
         for cat, tasks in complexity_scores.items()
     }
-    
+
     # Create a coding-focused role definition modeled after RooCode's default
     base_role = "You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices."
-    
+
     # Customize based heavily on BIG-BENCH-HARD performance
     if bigbench_overall > 0.8:
         role_addition: str = "excel at complex reasoning tasks, particularly in"
         top_categories = sorted(
             [(cat, score) for cat, score in category_averages.items() if score > 0.7],
             key=lambda x: x[1],
-            reverse=True
+            reverse=True,
         )[:3]
         if top_categories:
             top_categories: List[Tuple[str, float]] = top_categories
-            role_addition += " " + ", ".join(cat.replace("_", " ") for cat, _ in top_categories)
+            role_addition += " " + ", ".join(
+                cat.replace("_", " ") for cat, _ in top_categories
+            )
     elif bigbench_overall > 0.6:
         role_addition: str = "handle moderately complex tasks with good performance in"
         top_categories = sorted(
             [(cat, score) for cat, score in category_averages.items() if score > 0.5],
             key=lambda x: x[1],
-            reverse=True
+            reverse=True,
         )[:2]
         if top_categories:
             top_categories: List[Tuple[str, float]] = top_categories
-            role_addition += " " + " and ".join(cat.replace("_", " ") for cat, _ in top_categories)
+            role_addition += " " + " and ".join(
+                cat.replace("_", " ") for cat, _ in top_categories
+            )
     else:
         role_addition: str = "focus on well-defined tasks with clear requirements"
-    
+
     role_definition = f"{base_role} Using the {model_name} language model with a {context_window}-token context window, you {role_addition}."
-    
+
     # Build custom instructions focusing heavily on reasoning capabilities
     instructions: List[str] = []
-    
+
     # Document the model's complete performance profile
     instructions.append(f"## {model_name} Performance Profile")
     instructions.append("### BIG-BENCH-HARD Scores (Primary Capabilities)")
     for category, avg_score in category_averages.items():
         if avg_score > 0:
-            instructions.append(f"* {category.replace('_', ' ').title()}: {avg_score:.2f}")
+            instructions.append(
+                f"* {category.replace('_', ' ').title()}: {avg_score:.2f}"
+            )
     instructions.append("")
     instructions.append("### Standard Benchmark Scores (Secondary Capabilities)")
     instructions.append(f"* Simple tasks: {score_simple:.2f}")
@@ -98,18 +119,18 @@ def generate_mode_entry(model: Dict[str, Any]) -> Dict[str, Any]:
     instructions.append(f"* Complex tasks: {score_complex:.2f}")
     instructions.append(f"* Context window: {score_context_window:.2f}")
     instructions.append("")
-    
+
     # Add specific task delegation guidance based on complexity scores
     instructions.append("## Task Delegation Priorities")
     instructions.append("This model should be preferentially used for:")
-    
+
     # Sort categories by score and add specific task types
     sorted_categories: List[Tuple[str, float]] = sorted(
-         [(cat, score) for cat, score in category_averages.items()],
-         key=lambda x: x[1],
-         reverse=True
-     )
-    
+        [(cat, score) for cat, score in category_averages.items()],
+        key=lambda x: x[1],
+        reverse=True,
+    )
+
     for category, score in sorted_categories:
         if score > 0.7:
             priority = "High Priority"
@@ -119,10 +140,10 @@ def generate_mode_entry(model: Dict[str, Any]) -> Dict[str, Any]:
             priority = "Low Priority"
         else:
             continue
-            
-        cat_name = category.replace('_', ' ').title()
+
+        cat_name = category.replace("_", " ").title()
         instructions.append(f"\n### {cat_name} Tasks ({priority})")
-        
+
         # Add specific task types based on category
         if category == "logical_reasoning":
             instructions.append("* Complex conditional logic implementation")
@@ -148,106 +169,113 @@ def generate_mode_entry(model: Dict[str, Any]) -> Dict[str, Any]:
             instructions.append("* Bug fixing and debugging")
             instructions.append("* Code refactoring")
             instructions.append("* Feature implementation")
-    
+
     # Add context window management guidance
     if score_context_window > 0.8:
         instructions.append("\n## Context Management")
-        instructions.append("* Maximum context window: " + str(context_window) + " tokens")
+        instructions.append(
+            "* Maximum context window: " + str(context_window) + " tokens"
+        )
         instructions.append("* Excellent at handling large, complex tasks")
         instructions.append("* Can process multiple files simultaneously")
         instructions.append("* Maintains coherent understanding across large codebases")
     elif score_context_window > 0.4:
         instructions.append("\n## Context Management")
-        instructions.append("* Maximum context window: " + str(context_window) + " tokens")
+        instructions.append(
+            "* Maximum context window: " + str(context_window) + " tokens"
+        )
         instructions.append("* Best with focused, well-scoped tasks")
         instructions.append("* Process one file at a time")
         instructions.append("* May need context refreshing for complex tasks")
     else:
         instructions.append("\n## Context Management")
-        instructions.append("* Maximum context window: " + str(context_window) + " tokens")
+        instructions.append(
+            "* Maximum context window: " + str(context_window) + " tokens"
+        )
         instructions.append("* Requires very focused, minimal-context tasks")
         instructions.append("* Process small code segments")
         instructions.append("* Frequent context refreshing needed")
-    
+
     # Add learned prompt improvements if available
-    if model.get('prompt_improvements'):
+    if model.get("prompt_improvements"):
         instructions.append("\n## Effective Prompting Strategies")
-        for improvement in model.get('prompt_improvements', {}).values():
-            if 'analysis' in improvement:
-                analysis = improvement['analysis']
-                if len(analysis) > 20 and 'error' not in analysis.lower():
-                    key_point = analysis.split('.')[0].strip()
+        for improvement in model.get("prompt_improvements", {}).values():
+            if "analysis" in improvement:
+                analysis = improvement["analysis"]
+                if len(analysis) > 20 and "error" not in analysis.lower():
+                    key_point = analysis.split(".")[0].strip()
                     if len(key_point) > 10:
                         instructions.append(f"* {key_point}")
-    
+
     # Define appropriate groups based heavily on BIG-BENCH-HARD performance
     groups: List[Union[str, List[Any]]] = ["read"]
-    
+
     # Add edit capability based on weighted scores
     if bigbench_overall > 0.7 or (
-        bigbench_overall > 0.5 and 
-        category_averages.get('code_generation', 0) > 0.6
+        bigbench_overall > 0.5 and category_averages.get("code_generation", 0) > 0.6
     ):
         # Full code editing capabilities for high-performing models
         edit_restrictions = {
             "fileRegex": "\\.(py|js|ts|jsx|tsx|java|cpp|c|h|hpp|rb|go|rs|php|html|css|json|md)$",
-            "description": "All code and documentation files"
+            "description": "All code and documentation files",
         }
         groups.append(["edit", edit_restrictions])
     elif bigbench_overall > 0.5 or score_complex > 0.7:
         # Limited code editing for moderately capable models
         edit_restrictions = {
             "fileRegex": "\\.(py|js|ts|md|txt)$",
-            "description": "Python, JavaScript, and documentation files"
+            "description": "Python, JavaScript, and documentation files",
         }
         groups.append(["edit", edit_restrictions])
     else:
         # Documentation-only editing for lower-performing models
         edit_restrictions = {
             "fileRegex": "\\.(md|txt)$",
-            "description": "Documentation files only"
+            "description": "Documentation files only",
         }
         groups.append(["edit", edit_restrictions])
-    
+
     # Add command capability for models with strong reasoning abilities
-    if bigbench_overall > 0.7 or category_averages.get('problem_solving', 0) > 0.7:
+    if bigbench_overall > 0.7 or category_averages.get("problem_solving", 0) > 0.7:
         groups.append("command")
-    
+
     # Add MCP capability for all models
     groups.append("mcp")
-    
+
     # Create unique slug
     unique_slug: str = slugify(model_id)
-    
+
     # Create mode entry
     mode_entry: Dict[str, Any] = {
-         "slug": unique_slug,
-         "name": model_name,
-         "roleDefinition": role_definition,
-         "groups": groups,
-         "source": "global",
-         "customInstructions": "\n".join(instructions),
-         "contextWindow": context_window,
-         "maxResponseTokens": min(2000, int(context_window * 0.25)) if context_window else 2000,
-         "benchmarkData": {
-             "scores": {
-                 "bigbench": {
-                     "overall": bigbench_overall,
-                     "raw": bigbench_raw,
-                     "categories": category_averages
-                 },
-                 "standard": {
-                     "simple": score_simple,
-                     "moderate": score_moderate,
-                     "complex": score_complex,
-                     "context_window": score_context_window
-                 },
-                 "overall": overall_score
-             },
-             "lastUpdated": model.get('last_updated', '')
-         }
-     }
-    
+        "slug": unique_slug,
+        "name": model_name,
+        "roleDefinition": role_definition,
+        "groups": groups,
+        "source": "global",
+        "customInstructions": "\n".join(instructions),
+        "contextWindow": context_window,
+        "maxResponseTokens": (
+            min(2000, int(context_window * 0.25)) if context_window else 2000
+        ),
+        "benchmarkData": {
+            "scores": {
+                "bigbench": {
+                    "overall": bigbench_overall,
+                    "raw": bigbench_raw,
+                    "categories": category_averages,
+                },
+                "standard": {
+                    "simple": score_simple,
+                    "moderate": score_moderate,
+                    "complex": score_complex,
+                    "context_window": score_context_window,
+                },
+                "overall": overall_score,
+            },
+            "lastUpdated": model.get("last_updated", ""),
+        },
+    }
+
     return mode_entry
 
 
@@ -332,5 +360,5 @@ When delegating tasks to LM Studio models, ensure that:
 3. Include explicit instructions to the model on how to use the context
 4. For complex tasks with large context requirements, ONLY delegate to models with high context window scores
 
-Use subtasks to maintain clarity. If a request significantly shifts focus or requires a different expertise (mode), consider creating a subtask rather than overloading the current one."""
+Use subtasks to maintain clarity. If a request significantly shifts focus or requires a different expertise (mode), consider creating a subtask rather than overloading the current one.""",
     }

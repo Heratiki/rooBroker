@@ -63,9 +63,9 @@ def discover_models_with_status() -> Tuple[List[DiscoveredModel], Dict[str, Any]
     status: Dict[str, Any] = {
         "providers": {
             "LM Studio": {"status": False, "count": 0, "error": None},
-            "Ollama": {"status": False, "count": 0, "error": None}
+            "Ollama": {"status": False, "count": 0, "error": None},
         },
-        "total_count": 0
+        "total_count": 0,
     }
 
     # Try LM Studio
