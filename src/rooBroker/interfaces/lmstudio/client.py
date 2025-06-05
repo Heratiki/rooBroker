@@ -125,6 +125,9 @@ class LMStudioClient(ModelProviderClient):
             "temperature": temperature,
         }
 
+        # Track if we optimized the response buffer based on model context
+        response_buffer: Optional[int] = None
+
         # Optimize context if model details are available
         model_details = self.get_model_details(model_id)
         # Safely access context_window with a default value since it's not a required key
@@ -147,8 +150,9 @@ class LMStudioClient(ModelProviderClient):
         else:
             logger.info("Using default max_tokens due to missing model details.")
 
-        # If we didn't have valid context information, use the default max_tokens
-        payload["max_tokens"] = max_tokens
+        # Use the provided max_tokens only when no optimized value was computed
+        if response_buffer is None:
+            payload["max_tokens"] = max_tokens
 
         # Determine dynamic timeout based on model_id
         timeout_sec = 60  # Default timeout
