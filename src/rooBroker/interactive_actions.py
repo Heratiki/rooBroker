@@ -156,7 +156,7 @@ async def launch_context_proxy(layout: InteractiveLayout):
             console=layout.console,
         )
         layout.prompt.add_message(
-            f"[green]Proxy running on port {DEFAULT_PROXY_PORT}[green]"
+            f"[green]Proxy running on port {DEFAULT_PROXY_PORT}[/green]"
         )
 
     except Exception as e:
