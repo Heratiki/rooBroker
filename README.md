@@ -1,4 +1,4 @@
-# LM Studio Project Manager
+# RooBroker
 
 A CLI tool for discovering, benchmarking, and managing LM Studio models with RooCode integration.
 
