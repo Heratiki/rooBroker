@@ -4,7 +4,7 @@ from rich.table import Table
 from rich.prompt import Prompt, IntPrompt
 from rich.panel import Panel
 from rich import box
-from rooBroker.lmstudio import context_proxy
+from rooBroker.core.proxy import DEFAULT_PROXY_PORT, run_proxy_server
 from rooBroker.ui.common_formatters import pretty_print_models
 
 console = Console()
@@ -109,11 +109,13 @@ def select_models_by_number(models: List[Dict[str, Any]]) -> List[Dict[str, Any]
         return []
 
 
-def run_proxy_with_ui():
-    """Run the context optimization proxy with rich UI feedback"""
+def run_proxy_with_ui() -> None:
+    """Run the context optimization proxy with rich UI feedback."""
     try:
         # Allow user to customize port
-        port = IntPrompt.ask("Enter port for the proxy server", default=1235)
+        port = IntPrompt.ask(
+            "Enter port for the proxy server", default=DEFAULT_PROXY_PORT
+        )
 
         # Corrected Panel content with single backslashes for newlines
         console.print(
@@ -126,11 +128,12 @@ def run_proxy_with_ui():
             )
         )
 
-        # Set the proxy port using the imported module
-        context_proxy.PROXY_PORT = port
-
-        # Start the proxy server
-        run_proxy_server()
+        # Start the proxy server and block until interrupted
+        server = run_proxy_server(proxy_port=port, console=console)
+        try:
+            server.serve_forever()
+        finally:
+            server.server_close()
     except KeyboardInterrupt:
         console.print("[yellow]Proxy server stopped by user.[/yellow]")
     except Exception as e:
