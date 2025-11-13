@@ -67,6 +67,20 @@ def _evaluate_string_contains(
 def _evaluate_exec_check_state(
     response: str, bench: Dict[str, Any], results: Dict[str, Any], logger
 ) -> Dict[str, Any]:
+    # TODO: CRITICAL P1 - Arbitrary code execution without sandboxing
+    # Issue: Uses exec() to execute LLM-generated code with full Python access.
+    # Allows file system access, network calls, subprocess execution, infinite loops.
+    # Why it matters: This is a critical security vulnerability. Malicious LLM outputs
+    # or compromised benchmark files could execute arbitrary code on the host system.
+    # Action: Implement proper sandboxing using RestrictedPython or containerized
+    # execution (Docker/podman). Restrict __builtins__, block dangerous modules
+    # (os, sys, subprocess, socket), add CPU/memory limits, timeout enforcement.
+
+    # TODO: P2 - Missing validation on test_case structure
+    # Issue: Assumes test_case["input"] and test_case["expected"] exist.
+    # Why it matters: Malformed benchmark files will cause KeyError crashes.
+    # Action: Add explicit validation: if "input" not in test_case: handle error.
+
     test_results = []
     for i, test_case in enumerate(bench["test_cases"]):
         # Safely handle optional 'expected' values
@@ -82,6 +96,12 @@ def _evaluate_exec_check_state(
             f"    {k} = {repr(v)}" for k, v in test_case["input"].items()
         )
 
+        # TODO: P2 - Fragile string concatenation for code generation
+        # Issue: If response contains mismatched indentation, triple quotes, or multi-line
+        # strings, the generated function will have syntax errors or inject code.
+        # Why it matters: Multi-line responses may break, causing false test failures.
+        # Action: Use textwrap.indent() to properly indent response. Validate response
+        # doesn't contain attempts to break out of function scope (e.g., triple quotes).
         # Build function string with explicit indentation control
         func_def_str = (
             "def temp_func():\n"
@@ -123,6 +143,17 @@ def _evaluate_exec_check_state(
 def _evaluate_exec_call_func(
     response: str, bench: Dict[str, Any], results: Dict[str, Any], logger
 ) -> Dict[str, Any]:
+    # TODO: CRITICAL P1 - Arbitrary code execution without sandboxing
+    # Issue: Same as _evaluate_exec_check_state - uses exec() with full __builtins__ access.
+    # Why it matters: Critical security vulnerability allowing arbitrary code execution.
+    # Action: Apply same sandboxing solution as _evaluate_exec_check_state.
+
+    # TODO: P2 - Inconsistent eval() usage on line 147
+    # Issue: Uses eval() with limited namespace {"instance": instance} but still
+    # allows arbitrary attribute access and method calls on the instance.
+    # Why it matters: Could potentially access private attributes or trigger side effects.
+    # Action: Validate method names against whitelist or use getattr() with checks.
+
     test_results = []
     for i, test_case in enumerate(bench["test_cases"]):
         local_env = {}
@@ -215,6 +246,13 @@ def _evaluate_exec_call_func(
 def _evaluate_eval_expression(
     response: str, bench: Dict[str, Any], results: Dict[str, Any], logger
 ) -> Dict[str, Any]:
+    # TODO: CRITICAL P1 - Arbitrary code execution without sandboxing
+    # Issue: Uses exec() with full __builtins__ on line 246, despite creating a restricted
+    # local_env on line 243. The restricted local_env is not used - overridden by exec.
+    # Why it matters: Same critical security vulnerability as other eval functions.
+    # Action: Apply sandboxing. Note the inconsistency between intended restricted
+    # builtins (line 243) and actual full access (line 246).
+
     test_results = []
     for i, test_case in enumerate(bench["test_cases"]):
         passed = False  # Default to False
@@ -222,6 +260,10 @@ def _evaluate_eval_expression(
             # Create a local environment for execution
             local_env = {"__builtins__": {"range": range, "len": len}}
 
+            # TODO: P1 - Inconsistent __builtins__ restriction
+            # Issue: local_env restricts builtins but exec() uses full __builtins__.
+            # Why it matters: The restriction is ineffective - code has full Python access.
+            # Action: Fix to: exec(response, {"__builtins__": local_env["__builtins__"]}, local_env)
             # Execute the entire code block
             exec(response, {"__builtins__": __builtins__}, local_env)
 
@@ -255,6 +297,17 @@ def _evaluate_eval_expression(
 def _evaluate_class_eval(
     response: str, bench: Dict[str, Any], results: Dict[str, Any], logger
 ) -> Dict[str, Any]:
+    # TODO: CRITICAL P1 - Arbitrary code execution without sandboxing
+    # Issue: Same security vulnerability - exec() without restrictions (line 293).
+    # Why it matters: Critical security risk allowing arbitrary code execution.
+    # Action: Apply same sandboxing solution as other evaluation functions.
+
+    # TODO: P2 - eval() with string interpolation on lines 308, 313
+    # Issue: Uses eval(f"instance.{call}") which constructs code from test data.
+    # If test_case["sequence"] contains malicious strings, could inject code.
+    # Why it matters: Benchmark files could be attack vectors if not trusted.
+    # Action: Use getattr(instance, method_name) with parsed method calls instead of eval.
+
     logger.debug("Entering class_eval logic block.")
     test_results = []
     try:
@@ -459,6 +512,18 @@ def run_standard_benchmarks(
         List[Dict[str, Any]]: List of benchmark results per model, including
             metrics like test pass rate and pass@k scores
     """
+    # TODO: P2 - No resource limits or timeout enforcement
+    # Issue: If num_samples is large (default 20), benchmarking could take hours
+    # or hang indefinitely if models hang. No overall timeout or resource limits.
+    # Why it matters: User has no control over total execution time, could run forever.
+    # Action: Add overall timeout parameter, warn if estimated time > threshold,
+    # add ability to cancel/resume benchmarking.
+
+    # TODO: P2 - No validation of inputs
+    # Issue: Doesn't validate models_to_benchmark is non-empty, benchmarks_to_run is valid.
+    # Why it matters: Could proceed with empty inputs and produce confusing empty results.
+    # Action: Add validation at start: if not models_to_benchmark: raise ValueError.
+
     results: List[Dict[str, Any]] = []
     total_benchmarks = len(models_to_benchmark) * len(benchmarks_to_run)
 
@@ -471,6 +536,11 @@ def run_standard_benchmarks(
         model_id = str(model["id"])  # Ensure model_id is a string
         provider_name = client.__class__.__name__.replace("Client", "")
 
+        # TODO: P2 - Fragile model filtering by string matching
+        # Issue: Filters out embedding models by checking if "embed" or "embedding"
+        # is in model_id. Could miss models with different naming conventions.
+        # Why it matters: May skip valid models or fail to skip embedding models.
+        # Action: Check model capabilities/metadata instead of string matching.
         # Skip embedding models
         if "embed" in model_id.lower() or "embedding" in model_id.lower():
             # if verbose: # This print was outside the verbose check
@@ -648,6 +718,20 @@ def load_benchmarks_from_directory(directory_path: str) -> List[Dict[str, Any]]:
     import json
     from pydantic import ValidationError
     from ..roo_types.benchmark_schemas import BenchmarkTask
+
+    # TODO: P1 - No file size limits when loading JSON
+    # Issue: Opens and loads JSON files with no size restrictions (line 732).
+    # A malicious or corrupt benchmark file could be gigabytes, causing OOM.
+    # Why it matters: Could crash the application or exhaust system memory.
+    # Action: Check file size before loading: if json_file.stat().st_size > MAX_SIZE: skip.
+    # Set reasonable limit like 10MB for benchmark files.
+
+    # TODO: P2 - rglob recursively searches all subdirectories
+    # Issue: Uses rglob("*.json") which recursively searches all subdirectories.
+    # Could load unintended files or traverse deep directory structures.
+    # Why it matters: May load non-benchmark JSON files, performance issues with deep trees.
+    # Action: Consider using glob("*.json") for non-recursive, or limit recursion depth.
+    # Document expected directory structure.
 
     console = Console()
     loaded_benchmarks = []

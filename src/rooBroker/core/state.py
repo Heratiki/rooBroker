@@ -28,6 +28,19 @@ def save_model_state(
     Raises:
         IOError: If there's an error writing to the file.
     """
+    # TODO: P2 - Silent data loss for models without IDs
+    # Issue: Models without model_id or id are silently skipped (line 40).
+    # No warning logged, user doesn't know data was lost.
+    # Why it matters: User may think all models were saved but some were dropped.
+    # Action: Log warning for each skipped model with logger or console.
+
+    # TODO: P2 - No validation of file_path
+    # Issue: Doesn't validate file_path is a safe location. Could write to arbitrary
+    # paths if user provides malicious input like "../../../etc/passwd".
+    # Why it matters: Could overwrite critical files or write to unauthorized locations.
+    # Action: Validate file_path is safe, use Path.resolve() to normalize, check it's
+    # within expected directory boundaries.
+
     if console is None:
         console = Console()
 
@@ -43,6 +56,13 @@ def save_model_state(
             json.dump(data_dict, f, indent=2, ensure_ascii=False)
         console.print(f"[green]{message}[/green]")
     except Exception as e:
+        # TODO: P2 - Broad exception handler masks real errors
+        # Issue: Catches all exceptions equally. Docstring says "Raises IOError" but
+        # function never raises - always catches and prints. Caller can't distinguish
+        # between permissions error, disk full, or invalid JSON.
+        # Why it matters: Can't handle specific error conditions differently.
+        # Action: Catch specific exceptions (IOError, PermissionError, OSError) separately,
+        # or remove handler and let exceptions propagate to caller.
         console.print(f"[red]Error saving model state: {e}[/red]")
 
 
@@ -59,6 +79,21 @@ def load_model_state(
         Dictionary mapping model IDs to model information dictionaries.
         Returns an empty dictionary if the file doesn't exist or cannot be parsed.
     """
+    # TODO: P1 - Silent failure on errors could mask critical issues
+    # Issue: Returns {} on any error (JSONDecodeError, PermissionError, etc.) with only
+    # a console message. Caller can't distinguish "file not found" from "corrupted file"
+    # from "permission denied". Empty dict looks the same as "no models saved".
+    # Why it matters: Application continues with empty state, user doesn't know if models
+    # were lost or never existed. Could re-benchmark models unnecessarily.
+    # Action: Return tuple (Dict, error: Optional[str]) or raise specific exceptions,
+    # let caller decide how to handle different failure modes.
+
+    # TODO: P2 - No file size check before loading
+    # Issue: Loads entire JSON file into memory with no size check. A corrupted or
+    # malicious state file could be gigabytes, causing OOM.
+    # Why it matters: Could crash application if state file is unexpectedly large.
+    # Action: Check state_path.stat().st_size before loading, reject if > reasonable limit.
+
     if console is None:
         console = Console()
 

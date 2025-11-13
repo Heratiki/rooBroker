@@ -19,6 +19,18 @@ def discover_all_models() -> List[DiscoveredModel]:
         List[DiscoveredModel]: Combined list of discovered models from all providers.
         Returns an empty list if no models are found or all providers fail.
     """
+    # TODO: P2 - No configuration for provider endpoints
+    # Issue: Hardcodes default URLs (localhost:1234, localhost:11434) with no way
+    # to configure custom URLs for remote providers or non-standard ports.
+    # Why it matters: Users can't discover models from remote servers or custom setups.
+    # Action: Accept optional base_urls dict parameter or read from environment variables.
+
+    # TODO: P2 - No deduplication of models
+    # Issue: If the same model appears in multiple providers (e.g., via proxies or
+    # shared model stores), it will be listed multiple times in all_models.
+    # Why it matters: Duplicate models in UI, wasted benchmarking on same model twice.
+    # Action: Deduplicate by model ID, or mark which providers have which models.
+
     # Initialize clients with default configurations
     lm_client = LMStudioClient()
     ollama_client = OllamaClient()
@@ -79,6 +91,13 @@ def discover_models_with_status() -> Tuple[List[DiscoveredModel], Dict[str, Any]
     # Try LM Studio
     try:
         lm_models = lm_client.discover_models()
+        # TODO: P2 - Direct mutation of TypedDict may fail at runtime
+        # Issue: model is a TypedDict (ModelInfo/OllamaModelInfo), and setting
+        # model["provider"] = "LM Studio" works only if "provider" is in the TypedDict.
+        # It is marked NotRequired, so this works, but if model is not a dict (e.g., frozen),
+        # this will fail. Type checker doesn't catch this.
+        # Why it matters: Could fail at runtime if TypedDict implementation changes.
+        # Action: Use safer pattern: model = {**model, "provider": "LM Studio"}.
         for model in lm_models:
             model["provider"] = "LM Studio"
         all_models.extend(lm_models)

@@ -57,6 +57,12 @@ class LMStudioClient(ModelProviderClient):
         Raises:
             RuntimeError: If unable to query the LM Studio models endpoint.
         """
+        # TODO: P2 - No retry logic for transient network failures
+        # Issue: Single attempt with 5s timeout. Transient network issues, DNS hiccups,
+        # or server restarts cause immediate failure.
+        # Why it matters: Discovery fails unnecessarily on temporary network glitches.
+        # Action: Add exponential backoff retry (2-3 attempts) for connection errors.
+
         try:
             response = requests.get(self.models_endpoint, timeout=5)
             response.raise_for_status()
@@ -107,6 +113,15 @@ class LMStudioClient(ModelProviderClient):
         Returns:
             Optional[DiscoveredModel]: The model's details if found, None otherwise.
         """
+        # TODO: P1 - EXTREMELY INEFFICIENT - Calls discover_models() every time
+        # Issue: Every call to get_model_details() makes a full API request to list
+        # ALL models, then linear searches through them. Called for every completion
+        # request in run_completion() (line 154), causing massive overhead during benchmarking.
+        # Why it matters: With 20 samples per benchmark, this multiplies API calls by 20x.
+        # For 5 benchmarks on 3 models = 300 unnecessary discovery API calls.
+        # Action: Add caching layer - cache discovered models for 60s, or pass models
+        # list to run_completion to avoid repeated discovery.
+
         models = self.discover_models()
         for model in models:
             if model.get("id") == model_id:
@@ -150,6 +165,14 @@ class LMStudioClient(ModelProviderClient):
         # Track if we optimized the response buffer based on model context
         response_buffer: Optional[int] = None
 
+        # TODO: P1 - Inefficient: Calls get_model_details which calls discover_models
+        # (See TODO in get_model_details for full explanation)
+
+        # TODO: P2 - Magic number: 25% of context for response buffer
+        # Issue: Hardcoded response_buffer as 25% of context_window (line 178).
+        # Why it matters: Some tasks need more, some need less. No user control.
+        # Action: Make configurable parameter, or calculate based on prompt length.
+
         # Optimize context if model details are available
         model_details = self.get_model_details(model_id)
         # Safely access context_window with a default value since it's not a required key
@@ -161,6 +184,11 @@ class LMStudioClient(ModelProviderClient):
                 payload["max_tokens"] = response_buffer
                 input_limit = context_length - response_buffer
 
+                # TODO: P2 - Very rough token estimation (len // 4)
+                # Issue: Estimates tokens as characters / 4, which is inaccurate.
+                # English averages ~4 chars/token, but code/special chars vary widely.
+                # Why it matters: Warning may trigger incorrectly or miss real overflow.
+                # Action: Use tiktoken or similar tokenizer for accurate count.
                 # Estimate input tokens (rough approximation)
                 estimated = sum(len(m["content"]) // 4 for m in messages)
                 if estimated > input_limit * 0.9:
@@ -176,6 +204,11 @@ class LMStudioClient(ModelProviderClient):
         if response_buffer is None:
             payload["max_tokens"] = max_tokens
 
+        # TODO: P2 - Fragile timeout determination by string matching model_id
+        # Issue: Determines timeout by checking if "7b", "13b", "30b", etc. appear in model_id.
+        # Model names vary (mistral-7b-v0.1, Llama-3-8B, phi-2, etc.) - may miss or misclassify.
+        # Why it matters: Small models get too much timeout (waste), large models timeout too soon (fail).
+        # Action: Use model metadata (parameter count, model family) or let user configure timeout.
         # Determine dynamic timeout based on model_id
         timeout_sec = DEFAULT_TIMEOUT
         if any(keyword in model_id.lower() for keyword in ["7b", "13b"]) or (
