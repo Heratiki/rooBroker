@@ -12,19 +12,41 @@ from rooBroker.interfaces.base import ModelProviderClient
 from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage, ModelInfo
 from rooBroker.core.log_config import logger
 
+# Timeout constants (in seconds)
+DEFAULT_TIMEOUT = 60
+MEDIUM_MODEL_TIMEOUT = 120  # For 7B, 13B models or large context windows (>8000)
+LARGE_MODEL_TIMEOUT = 180  # For 30B, 34B, 70B models
+
 
 class LMStudioClient(ModelProviderClient):
     """LM Studio API client implementing the ModelProviderClient protocol."""
 
-    def __init__(self, base_url: str = "http://localhost:1234") -> None:
+    def __init__(
+        self, base_url: str = "http://localhost:1234", verify_ssl: bool = True
+    ) -> None:
         """Initialize the LM Studio client.
 
         Args:
             base_url: Base URL for the LM Studio API. Defaults to localhost:1234.
+            verify_ssl: Whether to verify SSL certificates for HTTPS connections.
+                Defaults to True. Only disable for trusted local development.
         """
         self.base_url = base_url.rstrip("/")
         self.models_endpoint = f"{self.base_url}/v1/models"
         self.completions_endpoint = f"{self.base_url}/v1/chat/completions"
+        self.verify_ssl = verify_ssl
+
+        # Warn if SSL verification is disabled for non-localhost HTTPS URLs
+        if (
+            not verify_ssl
+            and base_url.startswith("https://")
+            and "localhost" not in base_url
+            and "127.0.0.1" not in base_url
+        ):
+            logger.warning(
+                "SSL verification is disabled for a remote HTTPS endpoint. "
+                "This is insecure and should only be used in trusted development environments."
+            )
 
     def discover_models(self) -> List[DiscoveredModel]:
         """Discover available models from LM Studio.
@@ -155,13 +177,13 @@ class LMStudioClient(ModelProviderClient):
             payload["max_tokens"] = max_tokens
 
         # Determine dynamic timeout based on model_id
-        timeout_sec = 60  # Default timeout
+        timeout_sec = DEFAULT_TIMEOUT
         if any(keyword in model_id.lower() for keyword in ["7b", "13b"]) or (
             model_details and model_details.get("context_window", 0) > 8000
         ):
-            timeout_sec = 120
+            timeout_sec = MEDIUM_MODEL_TIMEOUT
         elif any(keyword in model_id.lower() for keyword in ["30b", "34b", "70b"]):
-            timeout_sec = 180
+            timeout_sec = LARGE_MODEL_TIMEOUT
 
         logger.debug(
             f"Using dynamic timeout: {timeout_sec} seconds for model_id: {model_id}"
@@ -175,7 +197,7 @@ class LMStudioClient(ModelProviderClient):
                     "Content-Type": "application/json",
                     "User-Agent": "Mozilla/5.0",
                 },
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=timeout_sec,
             )
             response.raise_for_status()

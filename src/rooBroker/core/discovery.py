@@ -9,6 +9,7 @@ from typing import List, Dict, Tuple, Optional, Any
 from rooBroker.interfaces.lmstudio.client import LMStudioClient
 from rooBroker.interfaces.ollama.client import OllamaClient
 from rooBroker.roo_types.discovery import DiscoveredModel
+from rooBroker.core.log_config import logger
 
 
 def discover_all_models() -> List[DiscoveredModel]:
@@ -31,10 +32,17 @@ def discover_all_models() -> List[DiscoveredModel]:
         try:
             provider_models = client.discover_models()
             all_models.extend(provider_models)
+        except RuntimeError as e:
+            # Expected errors from providers (connection issues, etc.)
+            # Log as debug since this is expected when a provider is not running
+            logger.debug(
+                f"Provider {client.__class__.__name__} unavailable: {e}"
+            )
         except Exception as e:
-            # Don't print warning here - let the caller handle this
-            # Just continue with other providers silently
-            pass
+            # Unexpected errors - log as warning but continue with other providers
+            logger.warning(
+                f"Unexpected error discovering models from {client.__class__.__name__}: {e}"
+            )
 
     return all_models
 

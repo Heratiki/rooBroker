@@ -39,6 +39,7 @@ from rooBroker.ui.interactive_layout import InteractiveLayout
 from rooBroker.roo_types.discovery import DiscoveredModel
 from rooBroker.interfaces.lmstudio.client import LMStudioClient
 from rooBroker.interfaces.ollama.client import OllamaClient
+from rooBroker.core.log_config import logger
 from . import interactive_actions
 
 # Global variables
@@ -78,8 +79,9 @@ def read_single_key() -> str:
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)  # type: ignore
             return ch
-        except:
-            pass
+        except (OSError, IOError, ValueError) as e:
+            # Handle terminal errors gracefully (e.g., not a TTY, permissions, etc.)
+            logger.debug(f"Could not read single key from terminal: {e}")
     return "\n"
 
 
@@ -159,7 +161,7 @@ MENU_OPTIONS = {
 }
 
 
-def _draw_menu(menu_type: str = "main", selected: int = 0):
+def _draw_menu(menu_type: str = "main", selected: int = 0) -> None:
     """Draw the menu with the currently selected item highlighted."""
     menu_items = MENU_OPTIONS[menu_type]
     for idx, (key, label, _) in enumerate(menu_items):
@@ -265,7 +267,8 @@ async def interactive_main_async():
                 await asyncio.sleep(1)  # Give user time to see error
 
 
-def _cleanup_resources():
+def _cleanup_resources() -> None:
+    """Clean up any running resources like proxy servers."""
     global proxy_stop_function
     if proxy_stop_function:
         layout.prompt.add_message("[yellow]Stopping context proxy...[/yellow]")
@@ -274,13 +277,21 @@ def _cleanup_resources():
 
 
 # Main execution
-def main():
-    """Main entry point."""
+def main() -> int:
+    """Main entry point for interactive mode.
+
+    Returns:
+        int: Exit code (0 for success, 1 for error)
+    """
     console.print("[bold blue]Welcome to rooBroker Interactive Mode[/]")
     try:
         asyncio.run(interactive_main_async())
+        return 0
     except KeyboardInterrupt:
-        pass
+        return 0
+    except Exception as e:
+        logger.error(f"Unexpected error in interactive mode: {e}")
+        return 1
     finally:
         _cleanup_resources()
         console.print("\n[bold blue]Exiting rooBroker Interactive Mode.[/]")

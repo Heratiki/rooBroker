@@ -641,6 +641,7 @@ def load_benchmarks_from_directory(directory_path: str) -> List[Dict[str, Any]]:
     Raises:
         ValidationError: If any benchmark file fails validation
         JSONDecodeError: If any file contains invalid JSON
+        ValueError: If the directory path is invalid or doesn't exist
     """
     from pathlib import Path
     from rich.console import Console
@@ -652,8 +653,21 @@ def load_benchmarks_from_directory(directory_path: str) -> List[Dict[str, Any]]:
     loaded_benchmarks = []
     failed_benchmarks = []
 
+    # Validate and resolve the directory path to prevent path traversal
+    try:
+        dir_path = Path(directory_path).resolve(strict=True)
+    except (OSError, RuntimeError) as e:
+        raise ValueError(
+            f"Invalid directory path '{directory_path}': {e}"
+        ) from e
+
+    if not dir_path.is_dir():
+        raise ValueError(
+            f"Path '{directory_path}' is not a directory or does not exist"
+        )
+
     # Load and validate each JSON file
-    for json_file in Path(directory_path).rglob("*.json"):
+    for json_file in dir_path.rglob("*.json"):
         try:
             with open(json_file, "r", encoding="utf-8") as file:
                 content = json.load(file)

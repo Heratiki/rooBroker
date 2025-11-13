@@ -10,7 +10,8 @@ from rooBroker.ui.common_formatters import pretty_print_models
 console = Console()
 
 
-def display_menu():
+def display_menu() -> None:
+    """Display the main menu using a rich panel."""
     console.print(
         Panel.fit(
             "[bold cyan]LM Studio Project Manager[/bold cyan]\n"
