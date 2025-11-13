@@ -18,30 +18,53 @@ LM Studio Project Manager helps you:
 - Rich library for UI components
 - Requests library for API communication
 
-Dependencies can be installed via:
-```bash
-pip install -r requirements.txt
-```
-
 ## Installation
 
 1. Clone this repository:
-```
+```bash
 git clone https://github.com/yourusername/rooBroker.git
 cd rooBroker
 ```
 
-2. Install dependencies:
+2. Install dependencies using Poetry:
+```bash
+poetry install
 ```
-pip install -r requirements.txt
+
+3. Activate the virtual environment (optional - Poetry handles this automatically):
+```bash
+poetry shell
 ```
 
 ## Usage
 
-Run the main application:
+### Interactive Mode (default)
 
+Run the application without arguments to enter interactive mode:
+
+```bash
+poetry run python -m rooBroker
 ```
-python main.py
+
+### CLI Mode
+
+Run with arguments to use CLI commands:
+
+```bash
+# Discover models
+poetry run python -m rooBroker discover
+
+# Run benchmarks
+poetry run python -m rooBroker benchmark
+
+# Generate RooCode modes
+poetry run python -m rooBroker modes
+```
+
+Or if you're in an activated Poetry shell:
+
+```bash
+python -m rooBroker
 ```
 
 ### Main Menu Options

@@ -13,21 +13,42 @@ from rooBroker.interfaces.base import ModelProviderClient
 from rooBroker.roo_types.discovery import DiscoveredModel, ChatMessage, OllamaModelInfo
 from rooBroker.core.log_config import logger
 
+# Timeout constants (in seconds)
+DEFAULT_TIMEOUT = 60
+DEFAULT_CONTEXT_WINDOW = 8192  # Default context window when not provided by API
+
 
 class OllamaClient(ModelProviderClient):
     """Ollama API client implementing the ModelProviderClient protocol."""
 
-    def __init__(self, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self, base_url: str = "http://localhost:11434", verify_ssl: bool = True
+    ) -> None:
         """Initialize the Ollama client.
 
         Args:
             base_url: Base URL for the Ollama API. Defaults to localhost:11434.
+            verify_ssl: Whether to verify SSL certificates for HTTPS connections.
+                Defaults to True. Only disable for trusted local development.
         """
         self.base_url = base_url.rstrip("/")
         self.tags_endpoint = f"{self.base_url}/api/tags"
         self.show_endpoint = f"{self.base_url}/api/show"
         self.generate_endpoint = f"{self.base_url}/api/generate"
         self.chat_endpoint = f"{self.base_url}/api/chat"
+        self.verify_ssl = verify_ssl
+
+        # Warn if SSL verification is disabled for non-localhost HTTPS URLs
+        if (
+            not verify_ssl
+            and base_url.startswith("https://")
+            and "localhost" not in base_url
+            and "127.0.0.1" not in base_url
+        ):
+            logger.warning(
+                "SSL verification is disabled for a remote HTTPS endpoint. "
+                "This is insecure and should only be used in trusted development environments."
+            )
 
     def discover_models(self) -> List[DiscoveredModel]:
         """Discover available models from Ollama.
@@ -68,7 +89,7 @@ class OllamaClient(ModelProviderClient):
 
             # Add optional fields if available
             model_info["context_window"] = (
-                8192  # Default value, actual value not provided in /api/tags
+                DEFAULT_CONTEXT_WINDOW  # Default value, actual value not provided in /api/tags
             )
 
             if model.get("tag"):
@@ -107,7 +128,7 @@ class OllamaClient(ModelProviderClient):
             if context_length:
                 model_info["context_window"] = context_length
             else:
-                model_info["context_window"] = 8192  # Default
+                model_info["context_window"] = DEFAULT_CONTEXT_WINDOW
 
             if data.get("tag"):
                 model_info["version"] = data.get("tag", "latest")
@@ -162,8 +183,8 @@ class OllamaClient(ModelProviderClient):
                 self.chat_endpoint,
                 headers=headers,  # Pass the defined headers
                 json=payload,  # Use json parameter for automatic Content-Type and serialization
-                timeout=60,
-                verify=False,  # Disable SSL verification
+                timeout=DEFAULT_TIMEOUT,
+                verify=self.verify_ssl,
             )
             response.raise_for_status()
             result = response.json()
